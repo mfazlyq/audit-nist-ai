@@ -108,10 +108,13 @@ if nist_file and sop_file:
 
                     Tugas:
                     Temukan gap antara SOP Kampus dan NIST CSF 2.0. 
-                    JELASKAN situasi nyata di 'Current Situation' dan berikan langkah konkret di 'Action Plan'.
+                    
+                    Ketentuan Penulisan:
+                    1. 'Current Situation': Jelaskan fakta kondisi SOP saat ini (20-30 kata). Sebutkan secara spesifik bagian mana yang kurang atau tidak ada.
+                    2. 'Action Plan': Jelaskan rekomendasi perbaikan (20-30 kata) yang mengacu pada best practice NIST CSF 2.0.
 
                     Format Wajib (HANYA HASIL INI):
-                    {nama} | {prefix}.XX-01 | [Jelaskan Gap di SOP] | [Rekomendasi NIST]
+                    {nama} | {prefix}.XX-01 | [Jelaskan Gap di SOP dan Narasi Detail Situasi] | [Rekomendasi NIST dan Narasi Detail Saran]
                     """
                     
                     try:
