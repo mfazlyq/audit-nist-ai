@@ -63,26 +63,29 @@ if nist_file and sop_file:
                 # Membuat Basis Pengetahuan Vektor (ChromaDB)
                 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
                 vectorstore = Chroma.from_documents(documents=splits, embedding=embeddings)
-                retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+                retriever = vectorstore.as_retriever(search_kwargs={"k": 15})
 
                 # Inisiasi AI Llama-3.1 melalui Groq
                 llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
 
-                # Prompt Engineering khusus Auditor
+                # Prompt Engineering yang lebih komprehensif
                 template = """
-                Anda adalah Auditor Keamanan Siber yang sangat teliti.
-                Tugas: Analisis kesenjangan (Gap Analysis) antara SOP IT Kampus dengan Standar NIST CSF 2.0.
-                
-                Instruksi:
-                1. Temukan 3 poin utama di mana SOP belum memenuhi standar NIST.
-                2. Untuk setiap temuan, sebutkan kode Subkategori NIST-nya (misal: GV.OC-01, PR.DS-10).
-                3. Berikan saran perbaikan singkat.
+                    Anda adalah Auditor Keamanan Siber yang sangat teliti.
+                    Tugas: Lakukan Audit Kepatuhan menyeluruh antara SOP IT Kampus dengan Standar NIST CSF 2.0.
 
-                Konteks Dokumen: {context}
-                Pertanyaan: {question}
-                
-                Berikan jawaban dalam Bahasa Indonesia yang profesional.
-                """
+                Instruksi:
+                    1. Identifikasi SEMUA kesenjangan (gap) yang ditemukan antara dokumen SOP dan standar NIST.
+                    2. Kelompokkan temuan berdasarkan Fungsi NIST (Govern, Identify, Protect, Detect, Respond, Recover).
+                    3. Untuk setiap temuan, wajib sertakan:
+                            - Kode Subkategori NIST (misal: PR.DS-01).
+                            - Penjelasan mengapa SOP belum memenuhi standar tersebut.
+                            - Rekomendasi tindakan perbaikan.
+
+                    Konteks Dokumen: {context}
+                    Pertanyaan: {question}
+
+                    Berikan laporan audit yang sistematis dan mendalam dalam Bahasa Indonesia.
+                    """
                 prompt = ChatPromptTemplate.from_template(template)
 
                 # RAG Chain
