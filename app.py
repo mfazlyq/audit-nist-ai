@@ -108,8 +108,8 @@ if nist_file and sop_file:
                     Bandingkan SOP dengan NIST. Jika tidak ada data di SOP, sebutkan gap tersebut secara detail.
                     
                     Ketentuan Penulisan:
-                    - 'Current Situation': Jelaskan kekurangan SOP (sekitar 15 kata).
-                    - 'Action Plan': Langkah perbaikan NIST (sekitar 15 kata).
+                    - 'Current Situation': Jelaskan kekurangan SOP (sekitar 10 kata).
+                    - 'Action Plan': Langkah perbaikan NIST (sekitar 10 kata).
 
                     Format Wajib (HANYA HASIL INI, TANPA PENJELASAN LAIN):
                     {nama} | {prefix}.XX-01 | [Current Situation] | [Action Plan]
