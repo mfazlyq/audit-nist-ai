@@ -55,14 +55,14 @@ else:
     os.environ["GROQ_API_KEY"] = "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"
 
 st.set_page_config(page_title="AI Cyber-Auditor NIST CSF 2.0", layout="wide")
-st.title("🛡️ AI Cyber-Auditor: NIST CSF 2.0 (Token Optimized)")
+st.title("🛡️ AI Cyber-Auditor: NIST CSF 2.0")
 
 nist_file = st.sidebar.file_uploader("Upload Standar NIST CSF 2.0", type="pdf")
 sop_file = st.sidebar.file_uploader("Upload SOP IT Kampus", type="pdf")
 
 if nist_file and sop_file:
-    if st.button("🚀 Jalankan Audit (Mode Hemat Token)"):
-        with st.spinner("Sedang memproses dokumen agar sesuai limit Groq..."):
+    if st.button("🚀 Jalankan Audit "):
+        with st.spinner("Sedang memproses dokumen..."):
             try:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as t1: t1.write(nist_file.read()); n_p = t1.name
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as t2: t2.write(sop_file.read()); s_p = t2.name
@@ -73,9 +73,8 @@ if nist_file and sop_file:
                 # OPTIMASI 1: Chunking sedikit lebih besar untuk mengurangi jumlah potongan teks
                 splits = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=100).split_documents(docs)
                 vstore = Chroma.from_documents(documents=splits, embedding=HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2"))
-                
-                # OPTIMASI 2: Mengurangi nilai k (dari 15 ke 3) agar token tidak meledak (FIX ERROR 413)
-                retriever = vstore.as_retriever(search_kwargs={"k": 3})
+            
+                retriever = vstore.as_retriever(search_kwargs={"k": 15})
 
                 llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
 
@@ -129,6 +128,11 @@ if nist_file and sop_file:
                     st.sidebar.download_button("📥 PDF", pdf_bytes, "Audit.pdf")
                 else:
                     st.warning("AI tidak dapat memformat data. Silakan coba lagi.")
+                else:
+                    st.warning("⚠️ Silakan upload file PDF Standar NIST dan SOP Kampus di sidebar.")
 
+                st.divider()
+
+st.caption("Prototipe AI Cyber-Auditor NIST CSF 2.0 - 2024")
             except Exception as e:
                 st.error(f"Error: {e}")
