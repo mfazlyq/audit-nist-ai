@@ -61,6 +61,7 @@ if nist_file and sop_file:
                 splits = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=200).split_documents(docs)
                 vstore = Chroma.from_documents(documents=splits, embedding=HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2"))
                 
+                
                 llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
                 
                 pilar_nist = [
@@ -132,13 +133,15 @@ if nist_file and sop_file:
                     st.sidebar.download_button("📊 Excel", df.to_csv(index=False).encode('utf-8'), "Audit_Report.csv")
                     st.sidebar.download_button("📄 PDF", create_pdf(df, summary_txt, buf), "Audit_Report.pdf")
                 else:
-                    st.warning("⚠️ Silakan upload file PDF di sidebar untuk memulai.")
-                    st.error("Gagal mendapatkan data. Server Groq sedang sibuk, silakan tunggu 1 menit dan coba lagi.")
-
-                st.divider()
-                st.caption("Penelitian Hibah Dosen Pemula 2024 - AI for Cybersecurity Compliance")
+                     st.error("Gagal mendapatkan data. Server Groq sedang sibuk, silakan tunggu 1 menit dan coba lagi.")
 
             except Exception as e:
                 st.error(f"Sistem: {e}")
 
-                
+else:
+    # Tampilan awal jika file belum di-upload
+    st.info("👋 Selamat Datang! Silakan unggah kedua file PDF di sidebar kiri untuk mengaktifkan tombol audit.")
+    st.warning("⚠️ Tombol audit akan muncul secara otomatis setelah file diunggah.")
+
+st.divider()
+st.caption("AI Cyber-Auditor NIST CSF 2.0 - 2025")
