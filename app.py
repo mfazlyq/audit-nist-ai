@@ -3,7 +3,7 @@ import os
 import tempfile
 import pandas as pd
 import io
-import matplotlib.pyplot as plt
+import re
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -46,20 +46,20 @@ if nist_file and sop_file:
 
                 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
                 vectorstore = Chroma.from_documents(documents=splits, embedding=embeddings)
-                
-                # Menambah k=5 agar visualisasi lebih variatif datanya
-                retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+                retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
                 llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
 
+                # PROMPT BARU: Meminta AI memberikan pemisah khusus (misal |) agar mudah dipisahkan ke kolom
                 template = """
                 Anda adalah Auditor Keamanan Siber Senior. Berikan analisis gap dalam format baris per baris.
                 Gunakan pemisah " | " untuk setiap kolom.
                 
-                Wajib sertakan Fungsi NIST (GOVERN, IDENTIFY, PROTECT, DETECT, RESPOND, atau RECOVER) pada kolom kategori.
-
                 Format setiap baris harus:
                 Kategori | Subkategori | Current Status | Action Plan
+                
+                Contoh:
+                PROTECT | PR.AC-01 | Belum ada MFA | Implementasikan MFA di semua sistem utama
                 
                 Konteks: {context}
                 Tugas: Temukan semua gap antara SOP dan NIST CSF 2.0. Berikan jawaban HANYA dalam format baris-baris tersebut.
@@ -70,7 +70,7 @@ if nist_file and sop_file:
                 response = rag_chain.invoke("Lakukan audit gap analysis")
                 raw_text = response.content
 
-                # --- 4. LOGIKA PARSING KE DATAFRAME ---
+                # --- 4. LOGIKA PARSING KE EXCEL ---
                 rows = []
                 for line in raw_text.strip().split('\n'):
                     if "|" in line:
@@ -78,6 +78,7 @@ if nist_file and sop_file:
                         if len(parts) >= 4:
                             rows.append(parts[:4])
 
+                # Membuat DataFrame dengan kolom yang sesuai template NIST
                 df = pd.DataFrame(rows, columns=[
                     "CSF Function/Category", 
                     "Subcategory ID", 
@@ -85,55 +86,20 @@ if nist_file and sop_file:
                     "Action Plan (Target Profile)"
                 ])
 
-                # --- 5. TAMPILKAN HASIL ---
+                # Tampilkan di Streamlit
                 st.success("✅ Analisis Selesai!")
-                
-                # Tampilkan Tabel
-                st.subheader("📋 Laporan Gap Analysis (NIST Organizational Profile)")
                 st.table(df)
-
-                st.divider()
-
-                # --- 6. VISUALISASI STATISTIK (DI BAWAH TABEL) ---
-                st.subheader("📊 Statistik Distribusi Gap per Fungsi NIST")
-                
-                # Standarisasi kategori untuk grafik
-                nist_core = ['GOVERN', 'IDENTIFY', 'PROTECT', 'DETECT', 'RESPOND', 'RECOVER']
-                
-                # Ekstrak fungsi utama dari kolom kategori
-                df['Main_Func'] = df['CSF Function/Category'].str.upper().apply(
-                    lambda x: next((f for f in nist_core if f in x), 'OTHER')
-                )
-                
-                counts = df['Main_Func'].value_counts().reindex(nist_core, fill_value=0)
-                
-                # Membuat Grafik
-                fig, ax = plt.subplots(figsize=(10, 5))
-                colors = ['#4CAF50', '#2196F3', '#FFC107', '#FF5722', '#9C27B0', '#607D8B']
-                counts.plot(kind='bar', ax=ax, color=colors)
-                
-                ax.set_title('Jumlah Temuan Celah Keamanan per Pilar NIST CSF 2.0')
-                ax.set_ylabel('Jumlah Gap')
-                ax.set_xlabel('Fungsi Utama NIST')
-                plt.xticks(rotation=0)
-                
-                # Tambah label angka di atas batang
-                for i, v in enumerate(counts):
-                    ax.text(i, v + 0.1, str(int(v)), ha='center', fontweight='bold')
-                
-                st.pyplot(fig)
-                st.info("Grafik di atas menunjukkan pilar mana yang paling banyak memiliki kekurangan dalam SOP IT Kampus Anda.")
 
                 # Export ke Excel
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df.drop(columns=['Main_Func']).to_excel(writer, index=False, sheet_name='NIST_Profile_Report')
+                    df.to_excel(writer, index=False, sheet_name='NIST_Profile_Report')
                 
                 st.sidebar.divider()
                 st.sidebar.download_button(
-                    label="📥 Download Hasil Audit (Excel)",
+                    label="📥 Download NIST Profile (Excel)",
                     data=output.getvalue(),
-                    file_name="NIST_CSF_Audit_Report.xlsx",
+                    file_name="NIST_CSF_Organizational_Profile.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
