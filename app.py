@@ -5,7 +5,6 @@ import pandas as pd
 import io
 import re
 import matplotlib.pyplot as plt
-from fpdf import FPDF # Library tambahan untuk PDF
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -14,61 +13,11 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 
-# --- FUNGSI GENERATE PDF (TAMBAHAN) ---
-def create_pdf(df, summary_text, plot_buf):
-    pdf = FPDF()
-    pdf.add_page()
-    
-    # Judul Laporan
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(190, 10, "Laporan Hasil Audit NIST CSF 2.0", ln=True, align='C')
-    pdf.ln(10)
-    
-    # Bagian Summary
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(100, 10, "1. Ringkasan Eksekutif", ln=True)
-    pdf.set_font("Arial", '', 10)
-    pdf.multi_cell(190, 7, summary_text.replace("**", "")) # Bersihkan markdown bold
-    pdf.ln(5)
-    
-    # Bagian Visualisasi (Grafik)
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(100, 10, "2. Statistik Distribusi Gap", ln=True)
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_img:
-        tmp_img.write(plot_buf.getvalue())
-        pdf.image(tmp_img.name, x=15, y=pdf.get_y(), w=170)
-    
-    # Pindah Halaman untuk Tabel
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(100, 10, "3. Detail Temuan Gap Analysis", ln=True)
-    pdf.ln(5)
-    
-    # Header Tabel
-    pdf.set_font("Arial", 'B', 8)
-    pdf.set_fill_color(200, 220, 255)
-    pdf.cell(45, 8, "Fungsi", border=1, fill=True)
-    pdf.cell(25, 8, "ID", border=1, fill=True)
-    pdf.cell(120, 8, "Action Plan (Target State)", border=1, fill=True, ln=True)
-    
-    # Isi Tabel
-    pdf.set_font("Arial", '', 7)
-    for i in range(len(df)):
-        # Membatasi teks agar tidak overflow di PDF
-        func = str(df.iloc[i, 0])[:25]
-        subid = str(df.iloc[i, 1])
-        action = str(df.iloc[i, 3])[:85]
-        
-        pdf.cell(45, 8, func, border=1)
-        pdf.cell(25, 8, subid, border=1)
-        pdf.cell(120, 8, action, border=1, ln=True)
-        
-    return pdf.output(dest='S').encode('latin-1')
-
 # --- 1. KONFIGURASI API KEY ---
 if "GROQ_API_KEY" in st.secrets:
     os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
 else:
+    # Untuk pengujian lokal
     os.environ["GROQ_API_KEY"] = "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"
 
 st.set_page_config(page_title="AI Cyber-Auditor NIST CSF 2.0", layout="wide")
@@ -100,10 +49,12 @@ if nist_file and sop_file:
                 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
                 vectorstore = Chroma.from_documents(documents=splits, embedding=embeddings)
                 
+                # Menggunakan k=5 agar data visualisasi lebih kaya
                 retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
 
                 llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
 
+                # PROMPT ANDA (Dipertahankan sesuai permintaan)
                 template = """
                 Anda adalah Auditor Keamanan Siber Senior. Berikan analisis gap dalam format baris per baris.
                 Gunakan pemisah " | " untuk setiap kolom.
@@ -148,13 +99,16 @@ if nist_file and sop_file:
                 st.subheader("📝 Ringkasan Eksekutif (Summary)")
                 total_gap = len(df)
                 
+                # Logika ekstraksi fungsi untuk statistik
                 nist_core = ['GOVERN', 'IDENTIFY', 'PROTECT', 'DETECT', 'RESPOND', 'RECOVER']
+                # Mencari kata kunci NIST di kolom pertama (Case-Insensitive)
                 df['Main_Func'] = df['CSF Function/Category'].str.upper().apply(
                     lambda x: next((f for f in nist_core if f in x), 'OTHER')
                 )
                 counts = df['Main_Func'].value_counts()
                 top_issue = counts.idxmax() if not counts.empty and counts.idxmax() != 'OTHER' else "N/A"
 
+                # Penulisan summary yang aman dari SyntaxError
                 summary_text = (
                     f"Berdasarkan analisis audit otomatis terhadap dokumen Anda:\n\n"
                     f"- **Total Temuan Gap**: Telah teridentifikasi {total_gap} celah keamanan.\n"
@@ -166,6 +120,7 @@ if nist_file and sop_file:
                 # --- 7. VISUALISASI STATISTIK (DI BAWAH TABEL) ---
                 st.subheader("📊 Statistik Distribusi Gap per Fungsi NIST")
                 
+                # Memastikan urutan grafik sesuai standar NIST
                 plot_data = counts.reindex(nist_core, fill_value=0)
                 
                 fig, ax = plt.subplots(figsize=(10, 5))
@@ -177,37 +132,24 @@ if nist_file and sop_file:
                 ax.set_xlabel('Fungsi Utama NIST')
                 plt.xticks(rotation=0)
                 
+                # Label angka di atas batang
                 for i, v in enumerate(plot_data):
                     ax.text(i, v + 0.1, str(int(v)), ha='center', fontweight='bold')
                 
-                # Simpan plot ke buffer untuk PDF
-                plot_buf = io.BytesIO()
-                plt.savefig(plot_buf, format='png')
                 st.pyplot(fig)
 
-                # --- 8. EXPORT (EXCEL & PDF) ---
-                st.sidebar.divider()
-                st.sidebar.subheader("📥 Download Laporan")
-
-                # Export Excel
-                exc_buf = io.BytesIO()
-                with pd.ExcelWriter(exc_buf, engine='openpyxl') as writer:
+                # --- 8. EXPORT EXCEL ---
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     df.drop(columns=['Main_Func']).to_excel(writer, index=False, sheet_name='NIST_Profile_Report')
                 
+                st.sidebar.divider()
+                st.sidebar.subheader("📥 Download")
                 st.sidebar.download_button(
-                    label="📥 Download Laporan Excel",
-                    data=exc_buf.getvalue(),
+                    label="Download Laporan Excel",
+                    data=output.getvalue(),
                     file_name="NIST_CSF_Audit_Report.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-
-                # Export PDF (FUNGSI BARU)
-                pdf_bytes = create_pdf(df, summary_text, plot_buf)
-                st.sidebar.download_button(
-                    label="📥 Download Laporan PDF",
-                    data=pdf_bytes,
-                    file_name="Laporan_Audit_NIST_CSF.pdf",
-                    mime="application/pdf"
                 )
 
             except Exception as e:
