@@ -132,13 +132,13 @@ if nist_file and sop_file:
                     st.sidebar.download_button("📊 Excel", df.to_csv(index=False).encode('utf-8'), "Audit_Report.csv")
                     st.sidebar.download_button("📄 PDF", create_pdf(df, summary_txt, buf), "Audit_Report.pdf")
                 else:
+                    st.warning("⚠️ Silakan upload file PDF di sidebar untuk memulai.")
                     st.error("Gagal mendapatkan data. Server Groq sedang sibuk, silakan tunggu 1 menit dan coba lagi.")
+
+                st.divider()
+                st.caption("Penelitian Hibah Dosen Pemula 2024 - AI for Cybersecurity Compliance")
 
             except Exception as e:
                 st.error(f"Sistem: {e}")
 
-                else:
-    st.warning("⚠️ Silakan upload file PDF di sidebar untuk memulai.")
-
-st.divider()
-st.caption("Penelitian Hibah Dosen Pemula 2024 - AI for Cybersecurity Compliance")
+                
