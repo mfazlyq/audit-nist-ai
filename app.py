@@ -63,10 +63,10 @@ if nist_file and sop_file:
                 # Membuat Basis Pengetahuan Vektor (ChromaDB)
                 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
                 vectorstore = Chroma.from_documents(documents=splits, embedding=embeddings)
-                retriever = vectorstore.as_retriever(search_kwargs={"k": 15})
+                retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
                 # Inisiasi AI Llama-3.1 melalui Groq
-                llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
+                llm = ChatGroq(model_name="llama3-8b-8192", temperature=0)
 
                 # Prompt Engineering yang lebih komprehensif
                 template = """
