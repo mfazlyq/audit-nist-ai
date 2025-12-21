@@ -3,7 +3,7 @@ import os
 import tempfile
 import pandas as pd
 import io
-import re
+import matplotlib.pyplot as plt
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -28,8 +28,8 @@ sop_file = st.sidebar.file_uploader("Upload SOP IT Kampus (PDF)", type="pdf")
 
 # --- 3. PROSES UTAMA ---
 if nist_file and sop_file:
-    if st.button("🚀 Jalankan Analisis Terstruktur"):
-        with st.spinner("Menganalisis dan memetakan data ke format Excel NIST..."):
+    if st.button("🚀 Jalankan Analisis Lengkap"):
+        with st.spinner("Sedang memproses dokumen dan membuat visualisasi..."):
             try:
                 # Ingestion
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_nist:
@@ -46,11 +46,11 @@ if nist_file and sop_file:
 
                 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
                 vectorstore = Chroma.from_documents(documents=splits, embedding=embeddings)
-                retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+                retriever = vectorstore.as_retriever(search_kwargs={"k": 4}) # k=4 untuk keseimbangan detail & token
 
                 llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
 
-                # PROMPT BARU: Meminta AI memberikan pemisah khusus (misal |) agar mudah dipisahkan ke kolom
+                # Prompt Terstruktur untuk Tabel NIST
                 template = """
                 Anda adalah Auditor Keamanan Siber Senior. Berikan analisis gap dalam format baris per baris.
                 Gunakan pemisah " | " untuk setiap kolom.
@@ -58,11 +58,8 @@ if nist_file and sop_file:
                 Format setiap baris harus:
                 Kategori | Subkategori | Current Status | Action Plan
                 
-                Contoh:
-                PROTECT | PR.AC-01 | Belum ada MFA | Implementasikan MFA di semua sistem utama
-                
                 Konteks: {context}
-                Tugas: Temukan semua gap antara SOP dan NIST CSF 2.0. Berikan jawaban HANYA dalam format baris-baris tersebut.
+                Tugas: Temukan minimal 10 gap utama antara SOP dan NIST CSF 2.0. Berikan jawaban HANYA dalam format baris tersebut.
                 """
                 prompt = ChatPromptTemplate.from_template(template)
                 rag_chain = ({"context": retriever, "question": RunnablePassthrough()} | prompt | llm)
@@ -70,38 +67,51 @@ if nist_file and sop_file:
                 response = rag_chain.invoke("Lakukan audit gap analysis")
                 raw_text = response.content
 
-                # --- 4. LOGIKA PARSING KE EXCEL ---
+                # Parsing ke DataFrame
                 rows = []
                 for line in raw_text.strip().split('\n'):
                     if "|" in line:
                         parts = [p.strip() for p in line.split("|")]
-                        if len(parts) >= 4:
-                            rows.append(parts[:4])
+                        if len(parts) >= 4: rows.append(parts[:4])
 
-                # Membuat DataFrame dengan kolom yang sesuai template NIST
-                df = pd.DataFrame(rows, columns=[
-                    "CSF Function/Category", 
-                    "Subcategory ID", 
-                    "Current Status (Current Profile)", 
-                    "Action Plan (Target Profile)"
-                ])
+                df = pd.DataFrame(rows, columns=["Function/Category", "Subcategory ID", "Current Status", "Action Plan"])
 
-                # Tampilkan di Streamlit
+                # --- 4. TAMPILKAN HASIL DENGAN LAYOUT KOLOM ---
                 st.success("✅ Analisis Selesai!")
-                st.table(df)
+                
+                col_table, col_viz = st.columns([2, 1])
 
-                # Export ke Excel
+                with col_table:
+                    st.subheader("📋 Laporan Organizational Profile")
+                    st.dataframe(df, use_container_width=True)
+
+                with col_viz:
+                    st.subheader("📊 Distribusi Temuan Gap")
+                    # Visualisasi: Menghitung berapa banyak temuan per Fungsi NIST
+                    # Kita ambil kata pertama dari kolom Kategori (GOVERN, PROTECT, dll)
+                    df['Main_Func'] = df['Function/Category'].str.split().str[0].str.upper()
+                    count_data = df['Main_Func'].value_counts()
+                    
+                    fig, ax = plt.subplots()
+                    count_data.plot(kind='barh', ax=ax, color='#1f77b4')
+                    ax.set_xlabel('Jumlah Temuan Gap')
+                    ax.invert_yaxis() # Biar urutannya enak dibaca
+                    st.pyplot(fig)
+                    
+                    st.info("Grafik ini menunjukkan area mana yang paling banyak memiliki celah keamanan (gap) di kampus Anda.")
+
+                # --- 5. EXPORT EXCEL ---
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df.to_excel(writer, index=False, sheet_name='NIST_Profile_Report')
+                    df.drop(columns=['Main_Func']).to_excel(writer, index=False, sheet_name='NIST_Audit')
                 
                 st.sidebar.divider()
                 st.sidebar.download_button(
-                    label="📥 Download NIST Profile (Excel)",
+                    label="📥 Download Hasil (Excel)",
                     data=output.getvalue(),
-                    file_name="NIST_CSF_Organizational_Profile.xlsx",
+                    file_name="Audit_NIST_SOP_Kampus.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"Terjadi kesalahan: {e}")
