@@ -3,6 +3,7 @@ import os
 import tempfile
 import pandas as pd
 import io
+import time
 import matplotlib.pyplot as plt
 from fpdf import FPDF 
 from langchain_community.document_loaders import PyPDFLoader
@@ -11,142 +12,150 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnablePassthrough
 
-# --- FUNGSI GENERATE PDF ---
+# --- 1. KONFIGURASI API & PAGE ---
+if "GROQ_API_KEY" in st.secrets:
+    os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
+else:
+    os.environ["GROQ_API_KEY"] = "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"
+
+st.set_page_config(page_title="Expert NIST Auditor Pro", layout="wide")
+st.title("🛡️ Expert AI Auditor: NIST CSF 2.0 (Sequential Mode)")
+
+# --- 2. FUNGSI GENERATE PDF ---
 def create_pdf(df, summary_text, plot_buf):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
-    pdf.cell(190, 10, "LAPORAN AUDIT KEPATUHAN NIST CSF 2.0", ln=True, align='C')
+    pdf.cell(190, 10, "LAPORAN AUDIT TATA KELOLA NIST CSF 2.0", ln=True, align='C')
     pdf.ln(10)
     
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(100, 10, "1. Ringkasan Eksekutif", ln=True)
     pdf.set_font("Arial", '', 10)
     pdf.multi_cell(190, 7, summary_text.replace("**", ""))
-    pdf.ln(10)
+    pdf.ln(5)
     
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(100, 10, "2. Visualisasi Gap Analysis", ln=True)
+    # Masukkan Grafik
     with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_img:
         tmp_img.write(plot_buf.getvalue())
         pdf.image(tmp_img.name, x=15, y=pdf.get_y(), w=170)
     
+    # Masukkan Tabel (Halaman Baru)
     pdf.add_page()
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(100, 10, "3. Detail Temuan Audit", ln=True)
-    pdf.ln(5)
+    pdf.set_font("Arial", 'B', 11)
+    pdf.cell(100, 10, "2. Detail Temuan Per Pilar", ln=True)
+    pdf.set_font("Arial", '', 8)
     
-    pdf.set_font("Arial", 'B', 8)
-    pdf.set_fill_color(230, 230, 230)
-    pdf.cell(40, 10, "Fungsi", border=1, fill=True)
-    pdf.cell(20, 10, "ID", border=1, fill=True)
-    pdf.cell(130, 10, "Rencana Tindakan", border=1, fill=True, ln=True)
-    
-    pdf.set_font("Arial", '', 7)
     for i in range(len(df)):
-        pdf.cell(40, 10, str(df.iloc[i, 0]), border=1)
-        pdf.cell(20, 10, str(df.iloc[i, 1]), border=1)
-        pdf.cell(130, 10, str(df.iloc[i, 3])[:90], border=1, ln=True)
+        pdf.set_font("Arial", 'B', 8)
+        pdf.multi_cell(190, 7, f"[{df.iloc[i,0]}] ID: {df.iloc[i,1]}", border='TLR', fill=False)
+        pdf.set_font("Arial", '', 8)
+        pdf.multi_cell(190, 7, f"Situasi: {df.iloc[i,2]}", border='LR')
+        pdf.multi_cell(190, 7, f"Saran: {df.iloc[i,3]}", border='BLR')
+        pdf.ln(2)
+        
     return pdf.output(dest='S').encode('latin-1')
 
-# --- SETUP API ---
-if "GROQ_API_KEY" in st.secrets:
-    os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
-else:
-    os.environ["GROQ_API_KEY"] = "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"
+# --- 3. SIDEBAR ---
+st.sidebar.header("📂 Dokumen Sumber")
+nist_file = st.sidebar.file_uploader("Upload Standar NIST (PDF)", type="pdf")
+sop_file = st.sidebar.file_uploader("Upload SOP Kampus (PDF)", type="pdf")
 
-st.set_page_config(page_title="AI Cyber-Auditor NIST CSF 2.0", layout="wide")
-st.title("🛡️ AI Cyber-Auditor: NIST CSF 2.0 Expert Analysis")
-
-nist_file = st.sidebar.file_uploader("Standar NIST (PDF)", type="pdf")
-sop_file = st.sidebar.file_uploader("SOP Kampus (PDF)", type="pdf")
-
+# --- 4. LOGIKA UTAMA ---
 if nist_file and sop_file:
-    if st.button("🚀 Jalankan Audit Analitis"):
-        with st.spinner("Auditor sedang membedah dokumen secara logis..."):
+    if st.button("🚀 Jalankan Audit Mendalam (Sekuensial)"):
+        with st.spinner("Memulai proses audit pilar demi pilar..."):
             try:
+                # Proses Ingesti
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as t1: t1.write(nist_file.read()); n_p = t1.name
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as t2: t2.write(sop_file.read()); s_p = t2.name
-
+                
                 docs = []
                 for p in [n_p, s_p]: docs.extend(PyPDFLoader(p).load())
-                splits = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=200).split_documents(docs)
+                splits = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150).split_documents(docs)
                 vstore = Chroma.from_documents(documents=splits, embedding=HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2"))
-                # Gunakan k=4 untuk sedikit menambah wawasan tanpa melebihi token limit
-                retriever = vstore.as_retriever(search_kwargs={"k": 4})
-
+                
                 llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
-
-                # PROMPT LOGIKA TINGGI (DIPERBAIKI)
-                template = """
-                Tugas: Auditor Senior NIST CSF 2.0.
-                Instruksi: Bandingkan isi SOP Kampus dengan Standar NIST. 
-                HANYA laporkan gap jika Anda menemukan bukti nyata bahwa kontrol tersebut TIDAK DISEBUTKAN atau TIDAK LENGKAP di SOP.
                 
-                DILARANG MENGARANG: Jika tidak yakin, jangan tuliskan baris tersebut.
-                Output Format: Fungsi | ID | Analisa Gap (Current) | Rekomendasi (Action Plan)
+                # Daftar Definisi Pilar NIST 2.0
+                pilar_nist = [
+                    ("GOVERN", "GV", "Strategi, tata kelola, dan manajemen risiko."),
+                    ("IDENTIFY", "ID", "Inventarisasi aset, lingkungan bisnis, dan penilaian risiko."),
+                    ("PROTECT", "PR", "Keamanan akses, kesadaran staf, dan perlindungan data."),
+                    ("DETECT", "DE", "Pemantauan anomali dan deteksi kejadian keamanan."),
+                    ("RESPOND", "RS", "Perencanaan respon insiden dan mitigasi."),
+                    ("RECOVER", "RC", "Pemulihan layanan dan komunikasi pasca insiden.")
+                ]
                 
-                Contoh Realistis:
-                PROTECT | PR.AC-01 | SOP tidak menyebutkan kewajiban Multi-Factor Authentication (MFA) | Revisi SOP Bab II untuk mewajibkan MFA.
-
-                Konteks: {context}
-                """
-                prompt = ChatPromptTemplate.from_template(template)
-                chain = ({"context": retriever, "question": RunnablePassthrough()} | prompt | llm)
+                all_results = []
+                progress_bar = st.progress(0)
                 
-                res = chain.invoke("Lakukan audit kritis. Fokus pada 6 pilar NIST.").content
-
-                # --- PARSING & CLEANING ---
-                rows = []
-                for line in res.strip().split('\n'):
-                    if "|" in line and "---" not in line:
-                        parts = [p.strip() for p in line.split("|")]
-                        if len(parts) >= 4:
-                            rows.append(parts[:4])
-
-                if rows:
-                    df = pd.DataFrame(rows, columns=["Fungsi", "ID", "Current Situation", "Action Plan"])
+                # Looping untuk setiap pilar agar tidak kena limit TPM 6000
+                for idx, (nama, prefix, desc) in enumerate(pilar_nist):
+                    st.write(f"🔎 Menganalisis Pilar: **{nama}**...")
                     
-                    # Hapus Duplikasi (Mencegah hasil sampai 372 baris)
-                    df = df.drop_duplicates(subset=['ID'])
+                    # Ambil konteks yang spesifik untuk pilar tersebut
+                    relevant_docs = vstore.as_retriever(search_kwargs={"k": 3}).invoke(f"Kontrol keamanan NIST pilar {nama}: {desc}")
+                    context_text = "\n\n".join([d.page_content for d in relevant_docs])
                     
-                    # Mapping Koreksi
-                    map_nist = {'GV': 'GOVERN', 'ID': 'IDENTIFY', 'PR': 'PROTECT', 'DE': 'DETECT', 'RS': 'RESPOND', 'RC': 'RECOVER'}
-                    def sync_func(row):
-                        pref = str(row['ID'])[:2].upper()
-                        return map_nist.get(pref, row['Fungsi'].upper())
-                    df['Fungsi'] = df.apply(sync_func, axis=1)
+                    prompt = f"""
+                    Anda adalah Auditor Keamanan Siber Senior. 
+                    Analisis pilar: {nama}
 
-                    st.success(f"✅ Berhasil memetakan {len(df)} temuan gap yang valid.")
+                    Konteks Dokumen:
+                    {context_text}
+
+                    Tugas:
+                    Temukan gap antara SOP Kampus dan NIST CSF 2.0. 
+                    JELASKAN situasi nyata di 'Current Situation' dan berikan langkah konkret di 'Action Plan'.
+
+                    Format Wajib (HANYA HASIL INI):
+                    {nama} | {prefix}.XX-01 | [Jelaskan Gap di SOP] | [Rekomendasi NIST]
+                    """
+                    
+                    try:
+                        resp = llm.invoke(prompt).content
+                        for line in resp.strip().split('\n'):
+                            if "|" in line:
+                                parts = [p.strip() for p in line.split("|")]
+                                if len(parts) >= 4: all_results.append(parts[:4])
+                    except Exception as e:
+                        st.warning(f"Gagal memproses pilar {nama} karena limit token. Melanjutkan pilar berikutnya...")
+                    
+                    progress_bar.progress((idx + 1) / len(pilar_nist))
+                    time.sleep(1) # Jeda singkat untuk menjaga kestabilan TPM
+
+                # Konversi ke DataFrame
+                df = pd.DataFrame(all_results, columns=["Fungsi", "ID", "Current Situation", "Action Plan"])
+                df = df.drop_duplicates(subset=['ID'])
+
+                if not df.empty:
+                    st.success("✅ Audit Selesai!")
+                    st.subheader("📋 Hasil Audit Mendalam")
                     st.table(df)
-                    
-                    # Visualisasi
-                    nist_core = ['GOVERN', 'IDENTIFY', 'PROTECT', 'DETECT', 'RESPOND', 'RECOVER']
+
+                    # Statistik & Visualisasi
+                    nist_core = [p[0] for p in pilar_nist]
                     counts = df['Fungsi'].value_counts().reindex(nist_core, fill_value=0)
                     
-                    st.subheader("📝 Kesimpulan Auditor")
-                    summary_text = f"Berdasarkan bukti dokumen, ditemukan {len(df)} celah. Pilar yang paling lemah adalah {counts.idxmax()}."
-                    st.info(summary_text)
-
-                    st.subheader("📊 Distribusi Gap Framework")
+                    st.subheader("📊 Statistik Kesenjangan")
                     fig, ax = plt.subplots(figsize=(10, 4))
                     counts.plot(kind='bar', ax=ax, color=['#4CAF50', '#2196F3', '#FFC107', '#FF5722', '#9C27B0', '#607D8B'])
-                    for i, v in enumerate(counts): ax.text(i, v + 0.1, str(int(v)), ha='center', fontweight='bold')
                     st.pyplot(fig)
                     
                     buf = io.BytesIO()
                     plt.savefig(buf, format='png')
 
-                    # Export
+                    # Summary & Export
+                    summary_txt = f"Total ditemukan {len(df)} gap unik. Prioritas utama perbaikan adalah pilar {counts.idxmax()}."
+                    st.info(summary_txt)
+                    
                     st.sidebar.divider()
-                    st.sidebar.download_button("📊 Excel", df.to_csv(index=False).encode('utf-8'), "Audit_Real.csv")
-                    st.sidebar.download_button("📄 PDF", create_pdf(df, summary_text, buf), "Audit_Real.pdf")
+                    st.sidebar.download_button("📊 Download Excel", df.to_csv(index=False).encode('utf-8'), "Audit_Report.csv")
+                    st.sidebar.download_button("📄 Download PDF", create_pdf(df, summary_txt, buf), "Audit_Report.pdf")
                 else:
-                    st.error("AI tidak menemukan gap atau dokumen kurang jelas. Coba upload ulang.")
+                    st.error("AI tidak berhasil mengekstrak data. Coba gunakan dokumen yang lebih spesifik.")
 
             except Exception as e:
-                st.error(f"Sistem: {e}")
-else:
-    st.info("💡 Unggah dokumen untuk memulai audit yang akurat.")
+                st.error(f"Terjadi kesalahan: {e}")
