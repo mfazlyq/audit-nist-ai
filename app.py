@@ -49,7 +49,7 @@ nist_file = st.sidebar.file_uploader("Upload Standar NIST (PDF)", type="pdf")
 sop_file = st.sidebar.file_uploader("Upload SOP Kampus (PDF)", type="pdf")
 
 if nist_file and sop_file:
-    if st.button("🚀 Mulai Audit Analitis (Anti-Error Mode)"):
+    if st.button("🚀 Memulai Audit Analitis "):
         with st.spinner("Menganalisis pilar demi pilar (Estimasi 30-45 detik)..."):
             try:
                 # Ingesti Dokumen
@@ -136,3 +136,9 @@ if nist_file and sop_file:
 
             except Exception as e:
                 st.error(f"Sistem: {e}")
+
+                else:
+    st.warning("⚠️ Silakan upload file PDF di sidebar untuk memulai.")
+
+st.divider()
+st.caption("Penelitian Hibah Dosen Pemula 2024 - AI for Cybersecurity Compliance")
