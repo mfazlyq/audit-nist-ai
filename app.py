@@ -91,13 +91,11 @@ if nist_file and sop_file:
                 all_results = []
                 progress_bar = st.progress(0)
                 
-                # Looping untuk setiap pilar agar tidak kena limit TPM 6000
-                # --- LOOPING ANALISIS DENGAN PENANGANAN ERROR LEBIH KUAT ---
                 for idx, (nama, prefix, desc) in enumerate(pilar_nist):
                     st.write(f"🔎 Menganalisis Pilar: **{nama}**...")
                     
-                    # Ambil konteks lebih banyak (k=4) untuk menghindari 'Konteks Kosong'
-                    relevant_docs = vstore.as_retriever(search_kwargs={"k": 4}).invoke(f"Kontrol NIST {nama}: {desc}")
+                    # Ambil konteks spesifik
+                    relevant_docs = vstore.as_retriever(search_kwargs={"k": 4}).invoke(f"Audit NIST {nama}")
                     context_text = "\n\n".join([d.page_content for d in relevant_docs])
                     
                     # Prompt yang sangat ketat terhadap format
@@ -110,11 +108,11 @@ if nist_file and sop_file:
                     Bandingkan SOP dengan NIST. Jika tidak ada data di SOP, sebutkan gap tersebut secara detail.
                     
                     Ketentuan Penulisan:
-                    - 'Current Situation': Jelaskan fakta kondisi SOP saat ini (~15 kata).
-                    - 'Action Plan': Jelaskan rekomendasi perbaikan (~15 kata).
+                    - 'Current Situation': Jelaskan kekurangan SOP (sekitar 15 kata).
+                    - 'Action Plan': Langkah perbaikan NIST (sekitar 15 kata).
 
                     Format Wajib (HANYA HASIL INI, TANPA PENJELASAN LAIN):
-                    {nama} | {prefix}.XX-01 | [Situasi ~15 kata] | [Saran ~15 kata]
+                    {nama} | {prefix}.XX-01 | [Current Situation] | [Action Plan]
                     """
                     
                     try:
@@ -135,8 +133,8 @@ if nist_file and sop_file:
                     except Exception as e:
                         st.error(f"❌ Gagal memproses pilar {nama}: {str(e)}")
                     
-                    # Jeda lebih lama (2 detik) untuk memastikan limit TPM 6000 tidak terlampaui
-                    time.sleep(2) 
+                    # Jeda lebih lama (4 detik) 
+                    time.sleep(4) 
                     progress_bar.progress((idx + 1) / len(pilar_nist))
 
                 # Konversi ke DataFrame
