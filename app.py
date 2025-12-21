@@ -4,6 +4,7 @@ import tempfile
 import pandas as pd
 import io
 import re
+import matplotlib.pyplot as plt # Tambahan untuk visualisasi
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -46,7 +47,9 @@ if nist_file and sop_file:
 
                 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
                 vectorstore = Chroma.from_documents(documents=splits, embedding=embeddings)
-                retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+                
+                # Menggunakan k=5 agar cakupan audit lebih luas untuk visualisasi
+                retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
 
                 llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
 
@@ -58,9 +61,8 @@ if nist_file and sop_file:
                 Format setiap baris harus:
                 Kategori | Subkategori | Current Status | Action Plan
                 
-                Contoh:
-                PROTECT | PR.AC-01 | Belum ada MFA | Implementasikan MFA di semua sistem utama
-                
+                Pastikan Kategori dimulai dengan salah satu fungsi NIST: GOVERN, IDENTIFY, PROTECT, DETECT, RESPOND, atau RECOVER.
+
                 Konteks: {context}
                 Tugas: Temukan semua gap antara SOP dan NIST CSF 2.0. Berikan jawaban HANYA dalam format baris-baris tersebut.
                 """
@@ -70,7 +72,7 @@ if nist_file and sop_file:
                 response = rag_chain.invoke("Lakukan audit gap analysis")
                 raw_text = response.content
 
-                # --- 4. LOGIKA PARSING KE EXCEL ---
+                # --- 4. LOGIKA PARSING KE DATAFRAME ---
                 rows = []
                 for line in raw_text.strip().split('\n'):
                     if "|" in line:
@@ -86,22 +88,28 @@ if nist_file and sop_file:
                     "Action Plan (Target Profile)"
                 ])
 
-                # Tampilkan di Streamlit
+                # --- 5. TAMPILKAN HASIL ---
                 st.success("✅ Analisis Selesai!")
+                
+                # TABEL UTAMA
+                st.subheader("📋 Tabel Temuan Gap Analysis (NIST Profile)")
                 st.table(df)
 
-                # Export ke Excel
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df.to_excel(writer, index=False, sheet_name='NIST_Profile_Report')
-                
-                st.sidebar.divider()
-                st.sidebar.download_button(
-                    label="📥 Download NIST Profile (Excel)",
-                    data=output.getvalue(),
-                    file_name="NIST_CSF_Organizational_Profile.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                st.divider()
 
-            except Exception as e:
-                st.error(f"Error: {e}")
+                # --- 6. LAPORAN SINGKAT (SUMMARY) ---
+                st.subheader("📝 Ringkasan Eksekutif (Summary)")
+                total_gap = len(df)
+                
+                # Logika Pembersihan Kategori untuk Summary
+                nist_core = ['GOVERN', 'IDENTIFY', 'PROTECT', 'DETECT', 'RESPOND', 'RECOVER']
+                df['Main_Func'] = df['CSF Function/Category'].str.upper().apply(
+                    lambda x: next((f for f in nist_core if f in x), 'OTHER')
+                )
+                counts = df['Main_Func'].value_counts()
+                top_issue = counts.idxmax() if not counts.empty else "N/A"
+
+                st.info(f"""
+                Berdasarkan analisis audit otomatis:
+                * **Total Temuan Gap**: Ditemukan {total_gap} celah keamanan.
+                * **Area Paling Kritis**:
