@@ -2,7 +2,10 @@ streamlit
 langchain
 langchain-community
 langchain-groq
+langchain-huggingface
 chromadb
 pypdf
 sentence-transformers
 matplotlib
+pandas
+openpyxl
