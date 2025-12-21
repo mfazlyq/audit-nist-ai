@@ -12,106 +12,83 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 
-# --- 1. KONFIGURASI API KEY ---
+# --- 1. SETUP API & PAGE ---
 if "GROQ_API_KEY" in st.secrets:
     os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
-else:
-    os.environ["GROQ_API_KEY"] = "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"
 
 st.set_page_config(page_title="AI Cyber-Auditor NIST CSF 2.0", layout="wide")
-st.title("🛡️ AI Cyber-Auditor: NIST CSF 2.0 Compliance")
+st.title("🛡️ AI Cyber-Auditor: NIST CSF 2.0 Dashboard")
 
 # --- 2. SIDEBAR ---
-st.sidebar.header("📂 Data Audit")
-nist_file = st.sidebar.file_uploader("Upload Standar NIST CSF 2.0 (PDF)", type="pdf")
-sop_file = st.sidebar.file_uploader("Upload SOP IT Kampus (PDF)", type="pdf")
+st.sidebar.header("📂 Upload Dokumen")
+nist_file = st.sidebar.file_uploader("Standar NIST CSF 2.0 (PDF)", type="pdf")
+sop_file = st.sidebar.file_uploader("SOP IT Kampus (PDF)", type="pdf")
 
-# --- 3. PROSES UTAMA ---
+# --- 3. LOGIKA ANALISIS ---
 if nist_file and sop_file:
-    if st.button("🚀 Jalankan Analisis Lengkap"):
-        with st.spinner("Sedang memproses dokumen dan membuat visualisasi..."):
+    if st.button("🚀 Mulai Audit & Visualisasi"):
+        with st.spinner("Menganalisis celah keamanan berdasarkan 6 Fungsi NIST..."):
             try:
-                # Ingestion
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_nist:
-                    tmp_nist.write(nist_file.getvalue()); nist_path = tmp_nist.name
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_sop:
-                    tmp_sop.write(sop_file.getvalue()); sop_path = tmp_sop.name
+                # Proses Dokumen
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as t1: t1.write(nist_file.read()); n_p = t1.name
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as t2: t2.write(sop_file.read()); s_p = t2.name
 
-                loaders = [PyPDFLoader(nist_path), PyPDFLoader(sop_path)]
                 docs = []
-                for loader in loaders: docs.extend(loader.load())
-
-                text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
-                splits = text_splitter.split_documents(docs)
-
-                embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-                vectorstore = Chroma.from_documents(documents=splits, embedding=embeddings)
-                retriever = vectorstore.as_retriever(search_kwargs={"k": 4}) # k=4 untuk keseimbangan detail & token
-
-                llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
-
-                # Prompt Terstruktur untuk Tabel NIST
-                template = """
-                Anda adalah Auditor Keamanan Siber Senior. Berikan analisis gap dalam format baris per baris.
-                Gunakan pemisah " | " untuk setiap kolom.
+                for p in [n_p, s_p]: docs.extend(PyPDFLoader(p).load())
+                splits = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150).split_documents(docs)
                 
-                Format setiap baris harus:
-                Kategori | Subkategori | Current Status | Action Plan
+                v_store = Chroma.from_documents(documents=splits, embedding=HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2"))
+                retriever = v_store.as_retriever(search_kwargs={"k": 5})
+
+                # Prompt Khusus untuk Pemetaan Fungsi
+                template = """
+                Anda adalah Auditor Senior. Temukan gap antara SOP dan NIST CSF 2.0.
+                Wajib sertakan Fungsi NIST (GOVERN, IDENTIFY, PROTECT, DETECT, RESPOND, atau RECOVER) di awal setiap temuan.
+
+                Format per baris: Fungsi | Subkategori | Status Saat Ini | Rencana Aksi
+                Tugas: Berikan minimal 10 temuan gap. HANYA format tersebut.
                 
                 Konteks: {context}
-                Tugas: Temukan minimal 10 gap utama antara SOP dan NIST CSF 2.0. Berikan jawaban HANYA dalam format baris tersebut.
                 """
-                prompt = ChatPromptTemplate.from_template(template)
-                rag_chain = ({"context": retriever, "question": RunnablePassthrough()} | prompt | llm)
+                llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
+                chain = ({"context": retriever, "question": RunnablePassthrough()} | ChatPromptTemplate.from_template(template) | llm)
                 
-                response = rag_chain.invoke("Lakukan audit gap analysis")
-                raw_text = response.content
+                res = chain.invoke("Lakukan audit").content
 
-                # Parsing ke DataFrame
-                rows = []
-                for line in raw_text.strip().split('\n'):
-                    if "|" in line:
-                        parts = [p.strip() for p in line.split("|")]
-                        if len(parts) >= 4: rows.append(parts[:4])
+                # Parsing ke Tabel
+                rows = [line.split("|") for line in res.strip().split('\n') if "|" in line]
+                df = pd.DataFrame(rows, columns=["Fungsi", "ID", "Current Status", "Action Plan"])
+                df = df.apply(lambda x: x.str.strip())
 
-                df = pd.DataFrame(rows, columns=["Function/Category", "Subcategory ID", "Current Status", "Action Plan"])
+                # --- 4. VISUALISASI BERDASARKAN FUNGSI NIST ---
+                st.success("✅ Audit Selesai!")
+                c1, c2 = st.columns([2, 1])
 
-                # --- 4. TAMPILKAN HASIL DENGAN LAYOUT KOLOM ---
-                st.success("✅ Analisis Selesai!")
-                
-                col_table, col_viz = st.columns([2, 1])
-
-                with col_table:
-                    st.subheader("📋 Laporan Organizational Profile")
+                with c1:
+                    st.subheader("📋 Tabel Temuan Gap Analysis")
                     st.dataframe(df, use_container_width=True)
 
-                with col_viz:
-                    st.subheader("📊 Distribusi Temuan Gap")
-                    # Visualisasi: Menghitung berapa banyak temuan per Fungsi NIST
-                    # Kita ambil kata pertama dari kolom Kategori (GOVERN, PROTECT, dll)
-                    df['Main_Func'] = df['Function/Category'].str.split().str[0].str.upper()
-                    count_data = df['Main_Func'].value_counts()
+                with c2:
+                    st.subheader("📊 Statistik per Fungsi NIST")
                     
-                    fig, ax = plt.subplots()
-                    count_data.plot(kind='barh', ax=ax, color='#1f77b4')
-                    ax.set_xlabel('Jumlah Temuan Gap')
-                    ax.invert_yaxis() # Biar urutannya enak dibaca
+                    # Logika: Memastikan hanya 6 Fungsi NIST yang dihitung
+                    nist_functions = ['GOVERN', 'IDENTIFY', 'PROTECT', 'DETECT', 'RESPOND', 'RECOVER']
+                    df['Fungsi_Clean'] = df['Fungsi'].str.upper().apply(lambda x: next((f for f in nist_functions if f in x), 'LAINNYA'))
+                    
+                    counts = df['Fungsi_Clean'].value_counts().reindex(nist_functions, fill_value=0)
+                    
+                    fig, ax = plt.subplots(figsize=(5, 4))
+                    colors = ['#4CAF50', '#2196F3', '#FFC107', '#FF5722', '#9C27B0', '#607D8B']
+                    counts.plot(kind='bar', ax=ax, color=colors)
+                    ax.set_ylabel('Jumlah Temuan Gap')
+                    plt.xticks(rotation=45)
                     st.pyplot(fig)
-                    
-                    st.info("Grafik ini menunjukkan area mana yang paling banyak memiliki celah keamanan (gap) di kampus Anda.")
+                    st.caption("Grafik ini menunjukkan distribusi kelemahan SOP berdasarkan pilar NIST CSF 2.0.")
 
-                # --- 5. EXPORT EXCEL ---
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df.drop(columns=['Main_Func']).to_excel(writer, index=False, sheet_name='NIST_Audit')
-                
-                st.sidebar.divider()
-                st.sidebar.download_button(
-                    label="📥 Download Hasil (Excel)",
-                    data=output.getvalue(),
-                    file_name="Audit_NIST_SOP_Kampus.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                # Export Excel
+                out = io.BytesIO()
+                with pd.ExcelWriter(out, engine='openpyxl') as w: df.to_excel(w, index=False)
+                st.sidebar.download_button("📥 Download Laporan Excel", out.getvalue(), "Audit_NIST_Report.xlsx")
 
             except Exception as e:
-                st.error(f"Terjadi kesalahan: {e}")
+                st.error(f"Kesalahan: {e}")
