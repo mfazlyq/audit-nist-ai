@@ -9,4 +9,3 @@ sentence-transformers
 matplotlib
 pandas
 openpyxl
-fpdf
