@@ -62,7 +62,7 @@ sop_file = st.sidebar.file_uploader("Upload SOP IT Kampus (PDF)", type="pdf")
 
 if nist_file and sop_file:
     if st.button("🚀 Jalankan Audit Patuh Framework"):
-        with st.spinner("Mensinkronisasi ID Subkategori dengan Framework NIST..."):
+        with st.spinner("Menganalisis dokumen..."):
             try:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as t1: t1.write(nist_file.read()); n_p = t1.name
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as t2: t2.write(sop_file.read()); s_p = t2.name
@@ -71,86 +71,72 @@ if nist_file and sop_file:
                 for p in [n_p, s_p]: docs.extend(PyPDFLoader(p).load())
                 splits = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=150).split_documents(docs)
                 vstore = Chroma.from_documents(documents=splits, embedding=HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2"))
-                retriever = vstore.as_retriever(search_kwargs={"k": 3})
+                retriever = vstore.as_retriever(search_kwargs={"k": 4})
 
                 llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
 
-                # --- PROMPT DENGAN KETENTUAN FRAMEWORK KETAT ---
                 template = """
                 Anda adalah Auditor Senior NIST. Bandingkan SOP Kampus dengan Framework NIST CSF 2.0.
+                Hasilkan laporan hanya dalam baris data dengan pemisah " | ".
                 
-                ATURAN KETAT PEMETAAN:
-                - ID awalan 'GV' wajib masuk kategori GOVERN
-                - ID awalan 'ID' wajib masuk kategori IDENTIFY
-                - ID awalan 'PR' wajib masuk kategori PROTECT
-                - ID awalan 'DE' wajib masuk kategori DETECT
-                - ID awalan 'RS' wajib masuk kategori RESPOND
-                - ID awalan 'RC' wajib masuk kategori RECOVER
+                ATURAN KETAT:
+                - Harus 4 kolom: Fungsi | ID NIST | Status Saat Ini | Action Plan
+                - ID awalan 'GV' = GOVERN, 'ID' = IDENTIFY, 'PR' = PROTECT, 'DE' = DETECT, 'RS' = RESPOND, 'RC' = RECOVER.
 
-                Format Output: Fungsi | ID NIST | Status Saat Ini | Action Plan
-                
                 Konteks Dokumen: {context}
                 """
                 prompt = ChatPromptTemplate.from_template(template)
                 chain = ({"context": retriever, "question": RunnablePassthrough()} | prompt | llm)
                 
-                res = chain.invoke("Lakukan audit gap analysis. Pastikan ID dan Fungsi sinkron.").content
+                res = chain.invoke("Lakukan audit gap analysis.").content
 
+                # --- FIX: LOGIKA PARSING YANG AMAN ---
                 rows = []
                 for line in res.strip().split('\n'):
-                    parts = [p.strip() for p in line.split("|")]
-                    if len(parts) >= 4:
-                        rows.append(parts[:4])
+                    # Hanya ambil baris yang mengandung karakter pemisah "|"
+                    if "|" in line:
+                        parts = [p.strip() for p in line.split("|")]
+                        # VALIDASI: Pastikan jumlah kolom tepat 4
+                        if len(parts) == 4:
+                            rows.append(parts)
 
-                df = pd.DataFrame(rows, columns=["Fungsi", "ID", "Current Status", "Action Plan"])
+                # Jika ada baris yang valid
+                if rows:
+                    df = pd.DataFrame(rows, columns=["Fungsi", "ID", "Current Status", "Action Plan"])
 
-                # --- LOGIKA FIXING (Mencegah AI Ngaco) ---
-                mapping = {'GV': 'GOVERN', 'ID': 'IDENTIFY', 'PR': 'PROTECT', 'DE': 'DETECT', 'RS': 'RESPOND', 'RC': 'RECOVER'}
-                def fix_function(row):
-                    prefix = str(row['ID'])[:2].upper()
-                    return mapping.get(prefix, row['Fungsi'].upper())
-                
-                df['Fungsi'] = df.apply(fix_function, axis=1)
+                    # Logika Sinkronisasi Fungsi (Mapping)
+                    mapping = {'GV': 'GOVERN', 'ID': 'IDENTIFY', 'PR': 'PROTECT', 'DE': 'DETECT', 'RS': 'RESPOND', 'RC': 'RECOVER'}
+                    def fix_function(row):
+                        prefix = str(row['ID'])[:2].upper()
+                        return mapping.get(prefix, row['Fungsi'].upper())
+                    
+                    df['Fungsi'] = df.apply(fix_function, axis=1)
 
-                if not df.empty:
-                    st.success(f"✅ Audit Selesai: {len(df)} temuan gap terdeteksi sesuai standar NIST.")
+                    st.success(f"✅ Audit Selesai: {len(df)} temuan gap terdeteksi.")
                     st.table(df)
                     
-                    # Statistik
+                    # Visualisasi & Summary
                     nist_core = ['GOVERN', 'IDENTIFY', 'PROTECT', 'DETECT', 'RESPOND', 'RECOVER']
                     counts = df['Fungsi'].value_counts().reindex(nist_core, fill_value=0)
-                    top_issue = counts.idxmax() if counts.max() > 0 else "N/A"
+                    top_issue = counts.idxmax()
 
-                    # Summary
                     st.subheader("📝 Ringkasan Eksekutif")
-                    summary_text = (
-                        f"Berdasarkan audit framework:\n"
-                        f"- **Kesesuaian**: Ditemukan ketidaksesuaian pada {len(df)} titik kontrol NIST.\n"
-                        f"- **Risiko Terbesar**: Fungsi **{top_issue}** memiliki celah terbanyak.\n"
-                        f"- **Current Situation**: Status saat ini menunjukkan SOP belum sepenuhnya selaras dengan panduan NIST CSF 2.0."
-                    )
+                    summary_text = f"Ditemukan {len(df)} titik gap. Area kritis utama: {top_issue}."
                     st.info(summary_text)
 
-                    # Visualisasi
-                    st.subheader("📊 Grafik Kepatuhan per Fungsi NIST")
+                    st.subheader("📊 Grafik Kepatuhan")
                     fig, ax = plt.subplots(figsize=(10, 4))
                     counts.plot(kind='bar', ax=ax, color=['#4CAF50', '#2196F3', '#FFC107', '#FF5722', '#9C27B0', '#607D8B'])
-                    for i, v in enumerate(counts): ax.text(i, v + 0.1, str(int(v)), ha='center', fontweight='bold')
                     st.pyplot(fig)
                     
                     buf = io.BytesIO()
                     plt.savefig(buf, format='png')
 
-                    # Export
                     st.sidebar.divider()
-                    exc_buf = io.BytesIO()
-                    with pd.ExcelWriter(exc_buf, engine='openpyxl') as w: df.to_excel(w, index=False)
-                    st.sidebar.download_button("📊 Excel", exc_buf.getvalue(), "Audit_NIST.xlsx")
-                    st.sidebar.download_button("📄 PDF", create_pdf(df, summary_text, buf), "Audit_NIST.pdf")
+                    st.sidebar.download_button("📊 Excel", df.to_csv(index=False).encode('utf-8'), "Audit.csv")
+                    st.sidebar.download_button("📄 PDF", create_pdf(df, summary_text, buf), "Audit.pdf")
                 else:
-                    st.error("Gagal melakukan parsing data. Silakan coba lagi.")
+                    st.error("AI menghasilkan format yang tidak sesuai (kurang dari 4 kolom). Silakan coba lagi.")
 
             except Exception as e:
-                st.error(f"Kesalahan: {e}")
-else:
-    st.warning("⚠️ Upload kedua file PDF di sidebar untuk memulai.")
+                st.error(f"Kesalahan Sistem: {e}")
