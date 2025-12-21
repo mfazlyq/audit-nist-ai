@@ -92,42 +92,52 @@ if nist_file and sop_file:
                 progress_bar = st.progress(0)
                 
                 # Looping untuk setiap pilar agar tidak kena limit TPM 6000
+                # --- LOOPING ANALISIS DENGAN PENANGANAN ERROR LEBIH KUAT ---
                 for idx, (nama, prefix, desc) in enumerate(pilar_nist):
                     st.write(f"🔎 Menganalisis Pilar: **{nama}**...")
                     
-                    # Ambil konteks yang spesifik untuk pilar tersebut
-                    relevant_docs = vstore.as_retriever(search_kwargs={"k": 3}).invoke(f"Kontrol keamanan NIST pilar {nama}: {desc}")
+                    # Ambil konteks lebih banyak (k=4) untuk menghindari 'Konteks Kosong'
+                    relevant_docs = vstore.as_retriever(search_kwargs={"k": 4}).invoke(f"Kontrol NIST {nama}: {desc}")
                     context_text = "\n\n".join([d.page_content for d in relevant_docs])
                     
+                    # Prompt yang sangat ketat terhadap format
                     prompt = f"""
-                    Anda adalah Auditor Keamanan Siber Senior. 
+                    Anda adalah Auditor Senior NIST CSF 2.0.
                     Analisis pilar: {nama}
-
-                    Konteks Dokumen:
-                    {context_text}
+                    Konteks Dokumen: {context_text}
 
                     Tugas:
-                    Temukan gap antara SOP Kampus dan NIST CSF 2.0. 
+                    Bandingkan SOP dengan NIST. Jika tidak ada data di SOP, sebutkan gap tersebut secara detail.
                     
                     Ketentuan Penulisan:
-                    1. 'Current Situation': Jelaskan fakta kondisi SOP saat ini (20-30 kata). Sebutkan secara spesifik bagian mana yang kurang atau tidak ada.
-                    2. 'Action Plan': Jelaskan rekomendasi perbaikan (20-30 kata) yang mengacu pada best practice NIST CSF 2.0.
+                    - 'Current Situation': Jelaskan fakta kondisi SOP saat ini (20-30 kata).
+                    - 'Action Plan': Jelaskan rekomendasi perbaikan (20-30 kata).
 
-                    Format Wajib (HANYA HASIL INI):
-                    {nama} | {prefix}.XX-01 | [Narasi Detail Situasi] | [Narasi Detail Saran]
+                    Format Wajib (HANYA HASIL INI, TANPA PENJELASAN LAIN):
+                    {nama} | {prefix}.XX-01 | [Situasi 20-30 kata] | [Saran 20-30 kata]
                     """
                     
                     try:
                         resp = llm.invoke(prompt).content
+                        
+                        # Cek apakah ada hasil yang valid
+                        found_in_pilar = False
                         for line in resp.strip().split('\n'):
                             if "|" in line:
                                 parts = [p.strip() for p in line.split("|")]
-                                if len(parts) >= 4: all_results.append(parts[:4])
+                                if len(parts) >= 4:
+                                    all_results.append(parts[:4])
+                                    found_in_pilar = True
+                        
+                        if not found_in_pilar:
+                            st.warning(f"⚠️ AI memberikan jawaban untuk {nama} tapi formatnya salah.")
+                            
                     except Exception as e:
-                        st.warning(f"Gagal memproses pilar {nama} karena limit token. Melanjutkan pilar berikutnya...")
+                        st.error(f"❌ Gagal memproses pilar {nama}: {str(e)}")
                     
+                    # Jeda lebih lama (2 detik) untuk memastikan limit TPM 6000 tidak terlampaui
+                    time.sleep(2) 
                     progress_bar.progress((idx + 1) / len(pilar_nist))
-                    time.sleep(1) # Jeda singkat untuk menjaga kestabilan TPM
 
                 # Konversi ke DataFrame
                 df = pd.DataFrame(all_results, columns=["Fungsi", "ID", "Current Situation", "Action Plan"])
