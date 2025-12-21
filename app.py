@@ -87,7 +87,7 @@ if nist_file and sop_file:
                 Fungsi WAJIB salah satu: GOVERN, IDENTIFY, PROTECT, DETECT, RESPOND, RECOVER.
                 
                 Konteks: {context}
-                Tugas: Temukan celah (gap). Jangan berikan teks pembuka/penutup.
+                Tugas: Temukan celah (gap). Berikan jawaban HANYA dalam format baris-baris tersebut agar sistem bisa membuat grafik.
                 """
                 prompt = ChatPromptTemplate.from_template(template)
                 chain = ({"context": retriever, "question": RunnablePassthrough()} | prompt | llm)
