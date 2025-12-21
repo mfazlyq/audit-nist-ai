@@ -35,11 +35,11 @@ def create_pdf(df, summary_text, plot_buf):
     
     pdf.add_page()
     pdf.set_font("Arial", 'B', 12)
-    pdf.cell(100, 10, "3. Detail Temuan", ln=True)
+    pdf.cell(100, 10, "3. Detail Temuan Audit", ln=True)
     pdf.set_font("Arial", 'B', 8)
     pdf.cell(45, 10, "Kategori", border=1)
     pdf.cell(25, 10, "ID", border=1)
-    pdf.cell(120, 10, "Rencana Tindakan", border=1, ln=True)
+    pdf.cell(120, 10, "Rencana Tindakan (Action Plan)", border=1, ln=True)
     
     pdf.set_font("Arial", '', 7)
     for i in range(len(df)):
@@ -48,21 +48,21 @@ def create_pdf(df, summary_text, plot_buf):
         pdf.cell(120, 10, str(df.iloc[i, 3])[:85], border=1, ln=True)
     return pdf.output(dest='S').encode('latin-1')
 
-# --- SETUP ---
+# --- SETUP API KEY ---
 if "GROQ_API_KEY" in st.secrets:
     os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
 else:
     os.environ["GROQ_API_KEY"] = "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"
 
 st.set_page_config(page_title="AI Cyber-Auditor NIST CSF 2.0", layout="wide")
-st.title("🛡️ AI Cyber-Auditor: NIST CSF 2.0")
+st.title("🛡️ AI Cyber-Auditor: NIST CSF 2.0 (Expert Auditor Mode)")
 
-nist_file = st.sidebar.file_uploader("Upload Standar NIST CSF 2.0", type="pdf")
-sop_file = st.sidebar.file_uploader("Upload SOP IT Kampus", type="pdf")
+nist_file = st.sidebar.file_uploader("Upload Standar NIST CSF 2.0 (PDF)", type="pdf")
+sop_file = st.sidebar.file_uploader("Upload SOP IT Kampus (PDF)", type="pdf")
 
 if nist_file and sop_file:
-    if st.button("🚀 Jalankan Audit "):
-        with st.spinner("Sedang memproses dokumen..."):
+    if st.button("🚀 Jalankan Analisis Ahli"):
+        with st.spinner("Auditor sedang meninjau dokumen..."):
             try:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as t1: t1.write(nist_file.read()); n_p = t1.name
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as t2: t2.write(sop_file.read()); s_p = t2.name
@@ -70,69 +70,91 @@ if nist_file and sop_file:
                 docs = []
                 for p in [n_p, s_p]: docs.extend(PyPDFLoader(p).load())
                 
-                # OPTIMASI 1: Chunking sedikit lebih besar untuk mengurangi jumlah potongan teks
-                splits = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=100).split_documents(docs)
+                splits = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=150).split_documents(docs)
                 vstore = Chroma.from_documents(documents=splits, embedding=HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2"))
-            
-                retriever = vstore.as_retriever(search_kwargs={"k": 15})
+                
+                # Menggunakan k=3 agar tetap stabil di limit TPM 6000 Groq
+                retriever = vstore.as_retriever(search_kwargs={"k": 3})
 
                 llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
 
+                # --- PROMPT LOGIC AUDITOR SENIOR ---
                 template = """
-                Anda adalah Auditor Senior. Petakan SOP ke NIST CSF 2.0.
-                Hasilkan laporan hanya dalam baris data pemisah " | ".
-                
-                Format: Fungsi/Kategori | ID Subkategori | Status Saat Ini | Rencana Aksi
-                Fungsi WAJIB salah satu: GOVERN, IDENTIFY, PROTECT, DETECT, RESPOND, RECOVER.
+                Anda adalah Auditor Keamanan Siber Senior bersertifikasi (CISA/CISSP). 
+                Tugas Anda adalah melakukan audit mendalam dengan membandingkan SOP IT Kampus terhadap Kerangka Kerja NIST CSF 2.0.
+
+                Gunakan logika berikut untuk setiap kolom:
+                1. FUNGSI/KATEGORI: Sebutkan Pilar NIST (GOVERN, IDENTIFY, PROTECT, DETECT, RESPOND, RECOVER).
+                2. ID SUBKATEGORI: Sebutkan kode NIST yang relevan (Contoh: PR.AC-01).
+                3. CURRENT STATUS: Jelaskan situasi nyata di SOP Kampus. Jika tidak ditemukan, katakan "Belum didokumentasikan dalam SOP".
+                4. ACTION PLAN: Berikan rekomendasi langkah konkret berdasarkan standar NIST CSF 2.0 untuk menutupi celah tersebut.
+
+                Format WAJIB: Kategori | ID | Status | Rencana Aksi
+                Tugas: Temukan celah (gap) yang paling kritikal. Jangan berikan kalimat pembuka.
                 
                 Konteks: {context}
-                Tugas: Temukan celah (gap). Berikan jawaban HANYA dalam format baris-baris tersebut agar sistem bisa membuat grafik.
                 """
                 prompt = ChatPromptTemplate.from_template(template)
                 chain = ({"context": retriever, "question": RunnablePassthrough()} | prompt | llm)
                 
-                res = chain.invoke("Lakukan audit").content
+                res = chain.invoke("Lakukan audit gap analysis menyeluruh").content
 
                 rows = []
                 for line in res.strip().split('\n'):
                     parts = [p.strip() for p in line.split("|")]
-                    if len(parts) >= 4: rows.append(parts[:4])
+                    if len(parts) >= 4:
+                        rows.append(parts[:4])
 
                 df = pd.DataFrame(rows, columns=["Fungsi", "ID", "Current Status", "Action Plan"])
 
                 if not df.empty:
-                    st.success(f"✅ Berhasil menemukan {len(df)} titik gap analisis.")
+                    st.success(f"✅ Analisis Berhasil: Ditemukan {len(df)} celah keamanan.")
                     st.table(df)
                     
+                    # Logika Statistik
                     nist_core = ['GOVERN', 'IDENTIFY', 'PROTECT', 'DETECT', 'RESPOND', 'RECOVER']
-                    df['Main_Func'] = df['Fungsi'].str.upper().apply(lambda x: next((f for f in nist_core if f in x), 'OTHER'))
+                    df['Main_Func'] = df['Fungsi'].str.upper().apply(lambda x: next((f for f in nist_core if f in x), 'LAINNYA'))
                     counts = df['Main_Func'].value_counts()
-                    
-                    summary_text = f"Total {len(df)} temuan. Fokus utama perbaikan pada fungsi {counts.idxmax()}."
+                    top_issue = counts.idxmax() if not counts.empty else "N/A"
+
+                    # Summary Section
+                    st.subheader("📝 Ringkasan Eksekutif")
+                    summary_text = (
+                        f"Berdasarkan tinjauan auditor:\n"
+                        f"- **Current Situation**: Ditemukan {len(df)} ketidaksesuaian antara SOP Kampus dengan standar internasional.\n"
+                        f"- **Titik Lemah Utama**: Area **{top_issue}** memerlukan perhatian mendesak.\n"
+                        f"- **Kepatuhan NIST**: Rekomendasi pada 'Action Plan' disusun untuk meningkatkan kematangan siber sesuai NIST CSF 2.0."
+                    )
                     st.info(summary_text)
 
+                    # Visualisasi
+                    st.subheader("📊 Statistik Kesenjangan NIST CSF 2.0")
                     plot_data = counts.reindex(nist_core, fill_value=0)
                     fig, ax = plt.subplots(figsize=(10, 4))
-                    plot_data.plot(kind='bar', ax=ax, color='#1f77b4')
-                    for i, v in enumerate(plot_data): ax.text(i, v + 0.1, str(int(v)), ha='center')
+                    plot_data.plot(kind='bar', ax=ax, color=['#4CAF50', '#2196F3', '#FFC107', '#FF5722', '#9C27B0', '#607D8B'])
+                    for i, v in enumerate(plot_data): ax.text(i, v + 0.1, str(int(v)), ha='center', fontweight='bold')
                     st.pyplot(fig)
                     
                     buf = io.BytesIO()
                     plt.savefig(buf, format='png')
 
+                    # Export Sidebar
+                    st.sidebar.divider()
+                    st.sidebar.subheader("📥 Export Laporan")
+                    
                     exc_buf = io.BytesIO()
                     with pd.ExcelWriter(exc_buf, engine='openpyxl') as w: df.to_excel(w, index=False)
-                    st.sidebar.download_button("📥 Excel", exc_buf.getvalue(), "Audit.xlsx")
+                    st.sidebar.download_button("📊 Download Excel", exc_buf.getvalue(), "Audit_Report.xlsx")
                     
                     pdf_bytes = create_pdf(df, summary_text, buf)
-                    st.sidebar.download_button("📥 PDF", pdf_bytes, "Audit.pdf")
+                    st.sidebar.download_button("📄 Download PDF", pdf_bytes, "Audit_Report.pdf")
                 else:
-                    st.warning("AI tidak dapat memformat data. Silakan coba lagi.")
-                else:
-                    st.warning("⚠️ Silakan upload file PDF Standar NIST dan SOP Kampus di sidebar.")
+                    st.warning("AI tidak dapat membedah dokumen. Pastikan file PDF berisi teks yang dapat dibaca.")
 
-                st.divider()
-
-st.caption("Prototipe AI Cyber-Auditor NIST CSF 2.0 - 2024")
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"Terjadi kesalahan teknis: {e}")
+else:
+    st.warning("⚠️ Silakan upload dokumen NIST dan SOP Kampus untuk memulai audit.")
+
+st.divider()
+st.caption("Prototipe AI Cyber-Auditor NIST CSF 2.0 - Penelitian Hibah Dosen Pemula 2024")
