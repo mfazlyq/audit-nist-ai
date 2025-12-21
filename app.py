@@ -55,14 +55,14 @@ else:
     os.environ["GROQ_API_KEY"] = "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"
 
 st.set_page_config(page_title="AI Cyber-Auditor NIST CSF 2.0", layout="wide")
-st.title("🛡️ AI Cyber-Auditor: NIST CSF 2.0 (Stable Mode)")
+st.title("🛡️ AI Cyber-Auditor: NIST CSF 2.0 (Token Optimized)")
 
 nist_file = st.sidebar.file_uploader("Upload Standar NIST CSF 2.0", type="pdf")
 sop_file = st.sidebar.file_uploader("Upload SOP IT Kampus", type="pdf")
 
 if nist_file and sop_file:
-    if st.button("🚀 Jalankan Audit Menyeluruh & Stabil"):
-        with st.spinner("Sedang melakukan sinkronisasi dokumen..."):
+    if st.button("🚀 Jalankan Audit (Mode Hemat Token)"):
+        with st.spinner("Sedang memproses dokumen agar sesuai limit Groq..."):
             try:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as t1: t1.write(nist_file.read()); n_p = t1.name
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as t2: t2.write(sop_file.read()); s_p = t2.name
@@ -70,32 +70,30 @@ if nist_file and sop_file:
                 docs = []
                 for p in [n_p, s_p]: docs.extend(PyPDFLoader(p).load())
                 
-                # Optimasi: Chunk lebih kecil agar lebih detail
-                splits = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100).split_documents(docs)
+                # OPTIMASI 1: Chunking sedikit lebih besar untuk mengurangi jumlah potongan teks
+                splits = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=100).split_documents(docs)
                 vstore = Chroma.from_documents(documents=splits, embedding=HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2"))
                 
-                # Optimasi: k=15 agar AI mengambil data lebih lengkap (Menyeluruh)
-                retriever = vstore.as_retriever(search_kwargs={"k": 15})
+                # OPTIMASI 2: Mengurangi nilai k (dari 15 ke 3) agar token tidak meledak (FIX ERROR 413)
+                retriever = vstore.as_retriever(search_kwargs={"k": 3})
 
-                # Optimasi: Temperature=0 agar lebih kaku/stabil
                 llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
 
                 template = """
-                Anda adalah Auditor Senior. Tugas Anda adalah memetakan SOP ke NIST CSF 2.0 secara MENYELURUH.
-                Hasilkan laporan hanya dalam baris-baris data dengan pemisah " | ".
+                Anda adalah Auditor Senior. Petakan SOP ke NIST CSF 2.0.
+                Hasilkan laporan hanya dalam baris data pemisah " | ".
                 
                 Format: Fungsi/Kategori | ID Subkategori | Status Saat Ini | Rencana Aksi
                 Fungsi WAJIB salah satu: GOVERN, IDENTIFY, PROTECT, DETECT, RESPOND, RECOVER.
                 
                 Konteks: {context}
-                Tugas: Temukan semua celah (gap) yang ada. Jangan memberikan pembukaan atau penutup teks.
+                Tugas: Temukan celah (gap). Jangan berikan teks pembuka/penutup.
                 """
                 prompt = ChatPromptTemplate.from_template(template)
                 chain = ({"context": retriever, "question": RunnablePassthrough()} | prompt | llm)
                 
                 res = chain.invoke("Lakukan audit").content
 
-                # Parsing Robust
                 rows = []
                 for line in res.strip().split('\n'):
                     parts = [p.strip() for p in line.split("|")]
@@ -107,15 +105,13 @@ if nist_file and sop_file:
                     st.success(f"✅ Berhasil menemukan {len(df)} titik gap analisis.")
                     st.table(df)
                     
-                    # Summary
                     nist_core = ['GOVERN', 'IDENTIFY', 'PROTECT', 'DETECT', 'RESPOND', 'RECOVER']
-                    df['Main_Func'] = df['Fungsi'].str.upper().apply(lambda x: next((f for f in nist_core if f in x), 'LAINNYA'))
+                    df['Main_Func'] = df['Fungsi'].str.upper().apply(lambda x: next((f for f in nist_core if f in x), 'OTHER'))
                     counts = df['Main_Func'].value_counts()
                     
-                    summary_text = f"Hasil audit menunjukkan total {len(df)} temuan. Fokus utama perbaikan adalah pada fungsi {counts.idxmax()}."
+                    summary_text = f"Total {len(df)} temuan. Fokus utama perbaikan pada fungsi {counts.idxmax()}."
                     st.info(summary_text)
 
-                    # Visualisasi
                     plot_data = counts.reindex(nist_core, fill_value=0)
                     fig, ax = plt.subplots(figsize=(10, 4))
                     plot_data.plot(kind='bar', ax=ax, color='#1f77b4')
@@ -125,7 +121,6 @@ if nist_file and sop_file:
                     buf = io.BytesIO()
                     plt.savefig(buf, format='png')
 
-                    # Download
                     exc_buf = io.BytesIO()
                     with pd.ExcelWriter(exc_buf, engine='openpyxl') as w: df.to_excel(w, index=False)
                     st.sidebar.download_button("📥 Excel", exc_buf.getvalue(), "Audit.xlsx")
@@ -133,7 +128,7 @@ if nist_file and sop_file:
                     pdf_bytes = create_pdf(df, summary_text, buf)
                     st.sidebar.download_button("📥 PDF", pdf_bytes, "Audit.pdf")
                 else:
-                    st.warning("AI memberikan format yang tidak terbaca. Silakan klik tombol 'Jalankan' sekali lagi.")
+                    st.warning("AI tidak dapat memformat data. Silakan coba lagi.")
 
             except Exception as e:
                 st.error(f"Error: {e}")
