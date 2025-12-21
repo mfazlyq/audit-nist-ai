@@ -114,7 +114,7 @@ if nist_file and sop_file:
                     2. 'Action Plan': Jelaskan rekomendasi perbaikan (20-30 kata) yang mengacu pada best practice NIST CSF 2.0.
 
                     Format Wajib (HANYA HASIL INI):
-                    {nama} | {prefix}.XX-01 | [Jelaskan Gap di SOP dan Narasi Detail Situasi] | [Rekomendasi NIST dan Narasi Detail Saran]
+                    {nama} | {prefix}.XX-01 | [Narasi Detail Situasi] | [Narasi Detail Saran]
                     """
                     
                     try:
