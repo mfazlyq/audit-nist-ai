@@ -17,7 +17,7 @@ from langchain_core.prompts import ChatPromptTemplate
 if "GROQ_API_KEY" in st.secrets:
     os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
 else:
-    os.environ["GROQ_API_KEY"] = "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"
+    os.environ["GROQ_API_KEY"] = "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"
 
 st.set_page_config(page_title="Expert NIST Auditor Pro", layout="wide")
 st.title("🛡️ Expert AI Auditor: NIST CSF 2.0 (Stable & Detailed)")
