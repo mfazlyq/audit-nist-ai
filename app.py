@@ -16,8 +16,12 @@ from langchain_core.prompts import ChatPromptTemplate
 # --- 1. SETUP API & PAGE ---
 if "GROQ_API_KEY" in st.secrets:
     os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
+elif "GROQ_API_KEY" in os.environ:
+    pass  # sudah diset dari environment
 else:
-    os.environ["GROQ_API_KEY"] = "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"
+    st.error("❌ GROQ_API_KEY belum diset.")
+    st.info("Silakan set API Key melalui Streamlit Secrets atau environment variable.")
+    st.stop()
 
 st.set_page_config(page_title="Expert NIST Auditor Pro", layout="wide")
 st.title("🛡️ Expert AI Auditor: NIST CSF 2.0 (Stable & Detailed)")
