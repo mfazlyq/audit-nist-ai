@@ -63,9 +63,9 @@ if nist_file and sop_file:
     
     if st.button("🚀 Analisa 12 Gap Prioritas Utama"):
         if file_id in st.session_state.audit_cache:
-            st.info("ℹ️ File yang sama terdeteksi. Mengambil hasil dari sistem...")
+            st.info("ℹ️ File terdeteksi. Mengambil data konsisten dari memori...")
         else:
-            with st.spinner("Mengevaluasi celah keamanan berdasarkan ID NIST ASLI..."):
+            with st.spinner("Mengevaluasi celah keamanan dengan Standar ID NIST Asli..."):
                 try:
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as t1: t1.write(nist_file.read()); n_p = t1.name
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as t2: t2.write(sop_bytes); s_p = t2.name
@@ -78,15 +78,15 @@ if nist_file and sop_file:
                     llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0)
                     pilar_nist = ["GOVERN", "IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"]
                     
-                    relevant_docs = vstore.as_retriever(search_kwargs={"k": 15}).invoke("Audit SOP berdasarkan NIST CSF 2.0 Sub-categories")
+                    relevant_docs = vstore.as_retriever(search_kwargs={"k": 15}).invoke("Gaps analysis NIST CSF 2.0 subcategories")
                     context_text = "\n\n".join([d.page_content for d in relevant_docs])
                     
-                    # --- PROMPT DENGAN PENGETATAN REFERENSI ID ---
+                    # --- PROMPT EKSTRIM (UNTUK MENGHENTIKAN HALUSINASI) ---
                     prompt = f"""
-                    TUGAS: Auditor Keamanan Senior. Temukan 12 GAP PALING KRITIS secara keseluruhan (Prioritas 1-12).
+                    TUGAS: Auditor NIST Ahli. Temukan 12 GAP PALING KRITIS (Ranking 1-12).
                     KONTEKS SOP: {context_text}
                     
-                    WAJIB GUNAKAN DAFTAR ID BERIKUT (DILARANG MENGARANG):
+                    REFERENSI ID WAJIB (HANYA GUNAKAN INI):
                     - GOVERN: GV.OC, GV.RM, GV.RR, GV.PO, GV.OV, GV.SC
                     - IDENTIFY: ID.AM, ID.RA, ID.IM
                     - PROTECT: PR.AA, PR.AT, PR.DS, PR.PS, PR.IR
@@ -94,10 +94,10 @@ if nist_file and sop_file:
                     - RESPOND: RS.CO, RS.AN, RS.MI, RS.MA
                     - RECOVER: RC.RP, RC.CO
 
-                    INSTRUKSI:
-                    1. Pilih ID Sub-category riil dari daftar di atas yang paling sesuai dengan gap di SOP.
-                    2. Berikan nomor urut belakang secara logis (Contoh: PR.AA-01, GV.OC-01).
-                    3. SITUASI & SARAN: Wajib 10-15 kata.
+                    INSTRUKSI KETAT:
+                    1. ID_KONTROL: Wajib ambil dari daftar di atas + nomor (Contoh: PR.DS-01). Dilarang mengarang XX atau kode lain.
+                    2. SITUASI & SARAN: Wajib terdiri dari 10 sampai 15 kata. Jangan lebih, jangan kurang.
+                    3. PILAR: Wajib satu kata (GOVERN/IDENTIFY/PROTECT/DETECT/RESPOND/RECOVER).
 
                     FORMAT OUTPUT (WAJIB 12 BARIS):
                     PILAR | ID_KONTROL | Situasi | Saran
@@ -105,69 +105,60 @@ if nist_file and sop_file:
                     
                     resp = llm.invoke(prompt).content
                     all_results = []
+                    
+                    # Referensi Resmi untuk Validasi Python
+                    valid_ids = ["GV.OC", "GV.RM", "GV.RR", "GV.PO", "GV.OV", "GV.SC", "ID.AM", "ID.RA", "ID.IM", 
+                                 "PR.AA", "PR.AT", "PR.DS", "PR.PS", "PR.IR", "DE.AE", "DE.CM", 
+                                 "RS.CO", "RS.AN", "RS.MI", "RS.MA", "RC.RP", "RC.CO"]
+
                     for line in resp.strip().split('\n'):
-                        if "|" in line and len(line.split("|")) >= 4:
+                        if "|" in line:
                             parts = [p.strip() for p in line.split("|")]
-                            pilar_raw = parts[0].upper()
-                            matched_pilar = next((p for p in pilar_nist if p in pilar_raw), None)
-                            
-                            # LOGIKA VALIDASI ID AGAR TIDAK HALUSINASI
-                            referensi_resmi = ["GV.OC", "GV.RM", "GV.RR", "GV.PO", "GV.OV", "GV.SC", 
-                                              "ID.AM", "ID.RA", "ID.IM", "PR.AA", "PR.AT", "PR.DS", 
-                                              "PR.PS", "PR.IR", "DE.AE", "DE.CM", "RS.CO", "RS.AN", 
-                                              "RS.MI", "RS.MA", "RC.RP", "RC.CO"]
-                            
-                            id_audit = parts[1].upper()
-                            # Jika ID tidak diawali referensi resmi, tandai atau abaikan
-                            if matched_pilar and any(id_audit.startswith(ref) for ref in referensi_resmi):
-                                all_results.append([matched_pilar, id_audit, parts[2], parts[3]])
+                            if len(parts) >= 4:
+                                pilar_upper = parts[0].upper()
+                                # Validasi Pilar & ID
+                                matched_pilar = next((p for p in pilar_nist if p in pilar_upper), None)
+                                id_val = parts[1].upper()
+                                
+                                # Hanya masukkan jika ID diawali dengan referensi asli
+                                if matched_pilar and any(id_val.startswith(ref) for ref in valid_ids):
+                                    all_results.append([matched_pilar, id_val, parts[2], parts[3]])
                     
                     if all_results:
-                        st.session_state.audit_cache[file_id] = all_results
+                        st.session_state.audit_cache[file_id] = all_results[:12]
                 except Exception as e:
-                    st.error(f"Terjadi kesalahan: {e}")
+                    st.error(f"Error: {e}")
 
+    # --- TAMPILAN ---
     if file_id in st.session_state.audit_cache:
         current_data = st.session_state.audit_cache[file_id]
-        df = pd.DataFrame(current_data[:12], columns=["Fungsi", "ID", "Current Situation", "Action Plan"])
+        df = pd.DataFrame(current_data, columns=["Fungsi", "ID", "Current Situation", "Action Plan"])
         
-        st.success("✅ Hasil Analisis 12 Gap Prioritas Utama (Berdasarkan ID NIST Resmi)")
+        st.success("✅ Analisis 12 Gap Prioritas Utama (Skala 1-12 Terkunci)")
         st.table(df)
 
-        # --- VISUALISASI SPIDER DIAGRAM ---
-        st.subheader("📊 NIST Compliance Gap Intensity Radar")
+        # --- RADAR CHART SINKRON ---
+        st.subheader("📊 NIST Compliance Radar")
         pilar_labels = ["GOVERN", "IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"]
         counts = df['Fungsi'].value_counts().reindex(pilar_labels, fill_value=0)
         
         labels = np.array(pilar_labels)
-        stats = counts.values
-        angles = np.linspace(0, 2*np.pi, len(labels), endpoint=False).tolist()
-        stats = np.concatenate((stats, [stats[0]]))
-        angles = np.concatenate((angles, [angles[0]]))
+        stats = np.concatenate((counts.values, [counts.values[0]]))
+        angles = np.concatenate((np.linspace(0, 2*np.pi, len(labels), endpoint=False), [0]))
 
         fig, ax = plt.subplots(figsize=(5, 5), subplot_kw=dict(polar=True))
         ax.fill(angles, stats, color='red', alpha=0.3)
-        ax.plot(angles, stats, color='red', linewidth=1.5, marker='o', markersize=4)
+        ax.plot(angles, stats, color='red', linewidth=1.5, marker='o')
         ax.set_xticks(angles[:-1])
         ax.set_xticklabels(labels, size=8)
         
-        max_val = int(stats.max()) if stats.max() > 0 else 1
-        ax.set_yticks(range(0, max_val + 1))
-        ax.set_yticklabels([str(i) for i in range(0, max_val + 1)], size=7)
-
+        max_y = int(stats.max()) if stats.max() > 0 else 1
+        ax.set_yticks(range(0, max_y + 1))
+        
         st.pyplot(fig)
         
         buf = io.BytesIO()
         plt.savefig(buf, format='png', bbox_inches='tight')
-
-        summary_txt = f"Audit Prioritas selesai. Konsentrasi gap tertinggi ditemukan pada pilar {counts.idxmax()}."
-        st.info(summary_txt)
-        
-        st.sidebar.divider()
-        st.sidebar.download_button("📊 Excel", df.to_csv(index=False).encode('utf-8'), "Audit_Prioritas.csv")
-        st.sidebar.download_button("📄 PDF", create_pdf(df, summary_txt, buf), "Audit_Prioritas.pdf")
+        st.sidebar.download_button("📄 PDF Report", create_pdf(df, "Audit Priority Report", buf), "Audit.pdf")
 else:
-    st.info("👋 Silakan unggah file PDF untuk memulai audit.")
-
-st.divider()
-st.caption("Prototipe Sistem Audit Otomatis NIST CSF 2.0 - 2025")
+    st.info("👋 Silakan unggah file PDF.")
