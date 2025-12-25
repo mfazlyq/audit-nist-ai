@@ -4,7 +4,7 @@ import tempfile
 import pandas as pd
 import io
 import time
-import numpy as np  # Tambahan untuk Spider Diagram
+import numpy as np
 import matplotlib.pyplot as plt
 from fpdf import FPDF 
 from langchain_community.document_loaders import PyPDFLoader
@@ -18,7 +18,7 @@ from langchain_core.prompts import ChatPromptTemplate
 if "GROQ_API_KEY" in st.secrets:
     os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
 elif "GROQ_API_KEY" in os.environ:
-    pass  # sudah diset dari environment
+    pass  
 else:
     st.error("❌ GROQ_API_KEY belum diset.")
     st.info("Silakan set API Key melalui Streamlit Secrets atau environment variable.")
@@ -38,7 +38,7 @@ def create_pdf(df, summary_text, plot_buf):
     pdf.multi_cell(190, 7, summary_text)
     pdf.ln(5)
     with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
-        tmp.write(plot_buf.getvalue()); pdf.image(tmp.name, x=25, y=pdf.get_y(), w=140) # Ukuran gambar di PDF disesuaikan
+        tmp.write(plot_buf.getvalue()); pdf.image(tmp.name, x=25, y=pdf.get_y(), w=140)
     pdf.add_page()
     for i in range(len(df)):
         pdf.set_font("Arial", 'B', 9)
@@ -66,22 +66,21 @@ if nist_file and sop_file:
                 splits = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=200).split_documents(docs)
                 vstore = Chroma.from_documents(documents=splits, embedding=HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2"))
                 
-                # Menggunakan model Llama 3.1 70B untuk ranking prioritas yang akurat
-                llm = ChatGroq(model_name="llama-3.1-70b-versatile", temperature=0)
+                # REVISI: Menggunakan model llama-3.3-70b-versatile (Pengganti model lama)
+                llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0)
                 
                 pilar_nist = ["GOVERN", "IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"]
                 
-                # Mengambil konteks kolektif (Top 15 Chunks) untuk melihat celah lintas pilar
+                # Mengambil konteks kolektif
                 relevant_docs = vstore.as_retriever(search_kwargs={"k": 15}).invoke("Cari celah keamanan paling kritis dalam SOP berdasarkan standar NIST CSF 2.0")
                 context_text = "\n\n".join([d.page_content for d in relevant_docs])
                 
-                # PROMPT: Global Ranking 1-12 (Random Pilar berdasarkan urgensi)
                 prompt = f"""
                 TUGAS: Auditor Keamanan Senior. Analisis seluruh SOP dan temukan 12 GAP PALING KRITIS secara keseluruhan (Global Ranking).
                 KONTEKS: {context_text}
                 
                 INSTRUKSI:
-                1. Identifikasi 12 temuan paling berbahaya (prioritas utama) dari pilar NIST mana pun secara acak (berdasarkan urgensi).
+                1. Identifikasi 12 temuan paling berbahaya dari pilar NIST mana pun secara acak.
                 2. Urutkan dari Prioritas 1 (Paling Mendesak) sampai 12.
                 3. Berikan pilar asal yang sesuai untuk setiap temuan.
 
@@ -98,7 +97,6 @@ if nist_file and sop_file:
                         parts = [p.strip() for p in line.split("|")]
                         all_results.append(parts[:4])
                 
-                # Jeda stabilitas
                 time.sleep(2)
 
                 if all_results:
@@ -118,7 +116,6 @@ if nist_file and sop_file:
                     stats = np.concatenate((stats, [stats[0]]))
                     angles = np.concatenate((angles, [angles[0]]))
 
-                    # Ukuran figsize diubah menjadi (6, 6) agar lebih normal
                     fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
                     ax.fill(angles, stats, color='red', alpha=0.3)
                     ax.plot(angles, stats, color='red', linewidth=1.5)
