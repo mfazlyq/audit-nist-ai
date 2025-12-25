@@ -4,7 +4,7 @@ import tempfile
 import pandas as pd
 import io
 import time
-import hashlib # Untuk logika deteksi revisi file
+import hashlib 
 import numpy as np
 import matplotlib.pyplot as plt
 from fpdf import FPDF 
@@ -26,11 +26,9 @@ else:
 st.set_page_config(page_title="Expert NIST Auditor Pro", layout="wide")
 st.title("🛡️ Prototipe Sistem Audit Keamanan Siber Otomatis berbasis Web")
 
-# --- FUNGSI HASH (UNTUK DETEKSI REVISI) ---
 def get_file_hash(file_bytes):
     return hashlib.sha256(file_bytes).hexdigest()
 
-# --- FUNGSI PDF ---
 def create_pdf(df, summary_text, plot_buf):
     pdf = FPDF()
     pdf.add_page()
@@ -53,26 +51,21 @@ def create_pdf(df, summary_text, plot_buf):
         pdf.ln(2)
     return pdf.output(dest='S').encode('latin-1')
 
-# --- SIDEBAR ---
 nist_file = st.sidebar.file_uploader("Upload Standar NIST (PDF)", type="pdf")
 sop_file = st.sidebar.file_uploader("Upload SOP Kampus (PDF)", type="pdf")
 
-# Inisialisasi Cache di Session State
 if "audit_cache" not in st.session_state:
     st.session_state.audit_cache = {}
 
 if nist_file and sop_file:
-    # Ambil isi file untuk hashing
     sop_bytes = sop_file.getvalue()
     file_id = get_file_hash(sop_bytes)
     
     if st.button("🚀 Analisa 12 Gap Prioritas Utama"):
-        # Cek apakah file sudah pernah diaudit dan belum berubah
         if file_id in st.session_state.audit_cache:
-            st.info("ℹ️ File yang sama terdeteksi. Mengambil hasil audit dari memori sistem...")
-            # Hasil akan ditampilkan dari cache di bawah
+            st.info("ℹ️ File yang sama terdeteksi. Mengambil hasil dari sistem...")
         else:
-            with st.spinner("Mengevaluasi celah keamanan berdasarkan ID NIST asli (Analisis Baru)..."):
+            with st.spinner("Mengevaluasi celah keamanan berdasarkan ID NIST ASLI..."):
                 try:
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as t1: t1.write(nist_file.read()); n_p = t1.name
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as t2: t2.write(sop_bytes); s_p = t2.name
@@ -82,32 +75,32 @@ if nist_file and sop_file:
                     splits = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=200).split_documents(docs)
                     vstore = Chroma.from_documents(documents=splits, embedding=HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2"))
                     
-                    # Menggunakan model stabil terbaru
                     llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0)
-                    
                     pilar_nist = ["GOVERN", "IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"]
                     
-                    relevant_docs = vstore.as_retriever(search_kwargs={"k": 15}).invoke("Cari celah keamanan paling kritis dalam SOP berdasarkan standar NIST CSF 2.0")
+                    relevant_docs = vstore.as_retriever(search_kwargs={"k": 15}).invoke("Audit SOP berdasarkan NIST CSF 2.0 Sub-categories")
                     context_text = "\n\n".join([d.page_content for d in relevant_docs])
                     
-                    # --- PROMPT REVISI ANDA ---
+                    # --- PROMPT DENGAN PENGETATAN REFERENSI ID ---
                     prompt = f"""
                     TUGAS: Auditor Keamanan Senior. Temukan 12 GAP PALING KRITIS secara keseluruhan (Prioritas 1-12).
-                    KONTEKS: {context_text}
+                    KONTEKS SOP: {context_text}
                     
-                    INSTRUKSI KHUSUS:
-                    1. Gunakan ID Sub-kategori ASLI dari NIST CSF 2.0 (Contoh: GV.OC-01, ID.AM-01, PR.AA-01, dsb).
-                    2. JANGAN MENGARANG ID. Cari ID yang paling relevan dengan celah keamanan yang ditemukan di SOP.
-                    3. Identifikasi 12 temuan paling berbahaya tanpa membagi rata per pilar.
-                    4. PILAR wajib salah satu dari: GOVERN, IDENTIFY, PROTECT, DETECT, RESPOND, RECOVER.
-                    5. SITUASI: Jelaskan kekurangan SOP secara mendetail (WAJIB 10-15 kata).
-                    6. SARAN: Berikan langkah mitigasi konkret (WAJIB 10-15 kata).
+                    WAJIB GUNAKAN DAFTAR ID BERIKUT (DILARANG MENGARANG):
+                    - GOVERN: GV.OC, GV.RM, GV.RR, GV.PO, GV.OV, GV.SC
+                    - IDENTIFY: ID.AM, ID.RA, ID.IM
+                    - PROTECT: PR.AA, PR.AT, PR.DS, PR.PS, PR.IR
+                    - DETECT: DE.AE, DE.CM
+                    - RESPOND: RS.CO, RS.AN, RS.MI, RS.MA
+                    - RECOVER: RC.RP, RC.CO
+
+                    INSTRUKSI:
+                    1. Pilih ID Sub-category riil dari daftar di atas yang paling sesuai dengan gap di SOP.
+                    2. Berikan nomor urut belakang secara logis (Contoh: PR.AA-01, GV.OC-01).
+                    3. SITUASI & SARAN: Wajib 10-15 kata.
 
                     FORMAT OUTPUT (WAJIB 12 BARIS):
                     PILAR | ID_KONTROL | Situasi | Saran
-                    
-                    Contoh baris benar:
-                    PROTECT | PR.AC-01 | SOP belum mengatur kebijakan akses kontrol fisik pada ruang server utama kampus. | Segera susun kebijakan akses fisik dan pasang perangkat autentikasi biometrik di ruang server.
                     """
                     
                     resp = llm.invoke(prompt).content
@@ -117,29 +110,36 @@ if nist_file and sop_file:
                             parts = [p.strip() for p in line.split("|")]
                             pilar_raw = parts[0].upper()
                             matched_pilar = next((p for p in pilar_nist if p in pilar_raw), None)
-                            if matched_pilar:
-                                all_results.append([matched_pilar, parts[1], parts[2], parts[3]])
+                            
+                            # LOGIKA VALIDASI ID AGAR TIDAK HALUSINASI
+                            referensi_resmi = ["GV.OC", "GV.RM", "GV.RR", "GV.PO", "GV.OV", "GV.SC", 
+                                              "ID.AM", "ID.RA", "ID.IM", "PR.AA", "PR.AT", "PR.DS", 
+                                              "PR.PS", "PR.IR", "DE.AE", "DE.CM", "RS.CO", "RS.AN", 
+                                              "RS.MI", "RS.MA", "RC.RP", "RC.CO"]
+                            
+                            id_audit = parts[1].upper()
+                            # Jika ID tidak diawali referensi resmi, tandai atau abaikan
+                            if matched_pilar and any(id_audit.startswith(ref) for ref in referensi_resmi):
+                                all_results.append([matched_pilar, id_audit, parts[2], parts[3]])
                     
-                    # Simpan ke cache
                     if all_results:
                         st.session_state.audit_cache[file_id] = all_results
                 except Exception as e:
                     st.error(f"Terjadi kesalahan: {e}")
 
-    # --- LOGIKA TAMPILAN PERSISTEN ---
     if file_id in st.session_state.audit_cache:
         current_data = st.session_state.audit_cache[file_id]
         df = pd.DataFrame(current_data[:12], columns=["Fungsi", "ID", "Current Situation", "Action Plan"])
         
-        st.success(f"✅ Hasil Analisis 12 Gap Prioritas Utama")
+        st.success("✅ Hasil Analisis 12 Gap Prioritas Utama (Berdasarkan ID NIST Resmi)")
         st.table(df)
 
         # --- VISUALISASI SPIDER DIAGRAM ---
         st.subheader("📊 NIST Compliance Gap Intensity Radar")
-        pilar_nist_labels = ["GOVERN", "IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"]
-        counts = df['Fungsi'].value_counts().reindex(pilar_nist_labels, fill_value=0)
+        pilar_labels = ["GOVERN", "IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"]
+        counts = df['Fungsi'].value_counts().reindex(pilar_labels, fill_value=0)
         
-        labels = np.array(pilar_nist_labels)
+        labels = np.array(pilar_labels)
         stats = counts.values
         angles = np.linspace(0, 2*np.pi, len(labels), endpoint=False).tolist()
         stats = np.concatenate((stats, [stats[0]]))
