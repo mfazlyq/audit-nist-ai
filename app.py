@@ -58,8 +58,12 @@ if "audit_cache" not in st.session_state:
     st.session_state.audit_cache = {}
 
 if nist_file and sop_file:
+    # --- FIX 1: Gunakan getvalue() agar buffer tidak hilang ---
+    nist_bytes = nist_file.getvalue()
     sop_bytes = sop_file.getvalue()
-    file_id = get_file_hash(sop_bytes)
+    
+    # --- FIX 2: Hash gabungan agar deteksi revisi akurat ---
+    file_id = get_file_hash(nist_bytes + sop_bytes)
     
     if st.button("🚀 Analisa 12 Gap Prioritas Utama"):
         if file_id in st.session_state.audit_cache:
@@ -67,7 +71,7 @@ if nist_file and sop_file:
         else:
             with st.spinner("Mencari 12 celah keamanan paling kritis secara global..."):
                 try:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as t1: t1.write(nist_file.read()); n_p = t1.name
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as t1: t1.write(nist_bytes); n_p = t1.name
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as t2: t2.write(sop_bytes); s_p = t2.name
                     
                     docs = []
@@ -75,31 +79,31 @@ if nist_file and sop_file:
                     splits = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=200).split_documents(docs)
                     vstore = Chroma.from_documents(documents=splits, embedding=HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2"))
                     
+                    # temperature=0 untuk memastikan output konsisten
                     llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0)
                     pilar_nist = ["GOVERN", "IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"]
                     
                     relevant_docs = vstore.as_retriever(search_kwargs={"k": 15}).invoke("Cari 12 kelemahan keamanan siber paling fatal")
                     context_text = "\n\n".join([d.page_content for d in relevant_docs])
                     
-                    # --- PROMPT REVOLUSIONER: FOKUS PADA RANKING GLOBAL ---
+                    # --- FIX 3: Prompt diperketat untuk Prioritas Global & Batas Kata ---
                     prompt = f"""
                     Anda adalah Auditor Senior NIST CSF 2.0.
-                    TUGAS: Analisa konteks SOP dan temukan tepat 12 GAP TERBURUK di seluruh organisasi tanpa mempedulikan distribusi pilar.
+                    TUGAS: Temukan tepat 12 GAP TERBURUK secara keseluruhan (Ranking 1-12) dari seluruh pilar NIST.
                     
                     REFERENSI ID (WAJIB):
-                    - GV.OC, GV.RM, GV.RR, GV.PO, GV.OV, GV.SC
-                    - ID.AM, ID.RA, ID.IM
-                    - PR.AA, PR.AT, PR.DS, PR.PS, PR.IR
-                    - DE.AE, DE.CM
-                    - RS.CO, RS.AN, RS.MI, RS.MA
-                    - RC.RP, RC.CO
+                    - GOVERN: GV.OC, GV.RM, GV.RR, GV.PO, GV.OV, GV.SC
+                    - IDENTIFY: ID.AM, ID.RA, ID.IM
+                    - PROTECT: PR.AA, PR.AT, PR.DS, PR.PS, PR.IR
+                    - DETECT: DE.AE, DE.CM
+                    - RESPOND: RS.CO, RS.AN, RS.MI, RS.MA
+                    - RECOVER: RC.RP, RC.CO
 
                     INSTRUKSI SANGAT KETAT:
-                    1. Jangan bagi 12 gap ini per pilar. Jika semua masalah ada di pilar PROTECT, keluarkan semua dari pilar PROTECT. 
-                    2. URUTKAN berdasarkan Skala Prioritas 1 (Risiko Paling Tinggi) sampai 12 (Risiko Terendah).
-                    3. SITUASI: Harus 10-15 kata. (Contoh: SOP belum mengatur kebijakan enkripsi data pada perangkat penyimpanan eksternal milik kampus).
-                    4. SARAN: Harus 10-15 kata. (Contoh: Implementasikan standar enkripsi AES-256 pada seluruh media penyimpanan data untuk proteksi maksimal).
-                    5. ID_KONTROL: Gunakan kode asli (Contoh: PR.DS-01).
+                    1. JANGAN membagi rata per pilar. Ambil yang paling berbahaya secara global.
+                    2. URUTKAN dari Prioritas 1 (Risiko Tertinggi) sampai 12 (Risiko Terendah).
+                    3. SITUASI & SARAN: Wajib terdiri dari 10-15 kata. Jika kurang atau lebih, anda gagal.
+                    4. ID_KONTROL: Wajib gunakan kode asli (Contoh: PR.DS-01).
 
                     KONTEKS: {context_text}
 
@@ -116,9 +120,14 @@ if nist_file and sop_file:
                             parts = [p.strip() for p in line.split("|")]
                             if len(parts) >= 4:
                                 pilar_fix = parts[0].upper()
-                                matched = next((p for p in pilar_nist if p in pilar_fix), None)
+                                matched = next((p for p in pilar_nist if p in pilar_upper if p in pilar_fix), None) # perbaikan logika pilar
+                                # Cek ulang pilar secara manual jika matched none
+                                if not matched:
+                                    for p in pilar_nist:
+                                        if p in pilar_fix: matched = p; break
+
                                 id_audit = parts[1].upper()
-                                # Validasi ID & Pilar
+                                # Validasi ID
                                 if matched and any(id_audit.startswith(ref) for ref in valid_refs):
                                     all_results.append([matched, id_audit, parts[2], parts[3]])
                     
@@ -155,7 +164,6 @@ if nist_file and sop_file:
 
         # --- TAMBAHAN: REKOMENDASI PILAR PRIORITAS ---
         st.divider()
-        # Menghitung pilar mana yang paling banyak muncul di tabel 12 gap
         top_pilar = counts.idxmax()
         top_val = int(counts.max())
         
@@ -176,6 +184,6 @@ if nist_file and sop_file:
         
         st.sidebar.divider()
         st.sidebar.download_button("📊 Excel", df.to_csv(index=False).encode('utf-8'), "Prioritas_12_Gap.csv")
-        st.sidebar.download_button("📄 PDF", create_pdf(df, "Analisis 12 Prioritas Utama", buf), "Audit_Report.pdf")
+        st.sidebar.download_button("📄 PDF", create_pdf(df, f"Analisis 12 Prioritas Utama - Fokus pada {top_pilar}", buf), "Audit_Report.pdf")
 else:
     st.info("👋 Silakan unggah file PDF.")
