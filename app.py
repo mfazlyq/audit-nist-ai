@@ -4,6 +4,7 @@ import tempfile
 import pandas as pd
 import io
 import time
+import numpy as np  # Tambahan untuk Spider Diagram
 import matplotlib.pyplot as plt
 from fpdf import FPDF 
 from langchain_community.document_loaders import PyPDFLoader
@@ -24,14 +25,14 @@ else:
     st.stop()
 
 st.set_page_config(page_title="Expert NIST Auditor Pro", layout="wide")
-st.title("🛡️ Expert AI Auditor: NIST CSF 2.0 (Stable & Detailed)")
+st.title("🛡️Prototipe Sistem Audit Keamanan Siber Otomatis berbasis Web")
 
 # --- FUNGSI PDF ---
 def create_pdf(df, summary_text, plot_buf):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
-    pdf.cell(190, 10, "LAPORAN AUDIT NIST CSF 2.0", ln=True, align='C')
+    pdf.cell(190, 10, "LAPORAN AUDIT NIST CSF 2.0 (12 GAP PRIORITAS)", ln=True, align='C')
     pdf.ln(10)
     pdf.set_font("Arial", '', 10)
     pdf.multi_cell(190, 7, summary_text)
@@ -53,8 +54,8 @@ nist_file = st.sidebar.file_uploader("Upload Standar NIST (PDF)", type="pdf")
 sop_file = st.sidebar.file_uploader("Upload SOP Kampus (PDF)", type="pdf")
 
 if nist_file and sop_file:
-    if st.button("🚀 Memulai Audit Analitis "):
-        with st.spinner("Menganalisis pilar demi pilar (Estimasi 30-45 detik)..."):
+    if st.button("🚀 Memulai Audit Analitis (12 Gap Prioritas)"):
+        with st.spinner("Menganalisis 12 gap prioritas pilar demi pilar..."):
             try:
                 # Ingesti Dokumen
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as t1: t1.write(nist_file.read()); n_p = t1.name
@@ -64,7 +65,6 @@ if nist_file and sop_file:
                 for p in [n_p, s_p]: docs.extend(PyPDFLoader(p).load())
                 splits = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=200).split_documents(docs)
                 vstore = Chroma.from_documents(documents=splits, embedding=HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2"))
-                
                 
                 llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
                 
@@ -85,23 +85,24 @@ if nist_file and sop_file:
                     relevant_docs = vstore.as_retriever(search_kwargs={"k": 4}).invoke(f"Audit NIST {nama}")
                     context_text = "\n\n".join([d.page_content for d in relevant_docs])
                     
+                    # PROMPT DIUBAH UNTUK MENCARI 2 GAP PRIORITAS PER PILAR (TOTAL 12)
                     prompt = f"""
-                    TUGAS: Auditor NIST CSF 2.0. Berikan 1 temuan gap pilar: {nama}.
+                    TUGAS: Auditor Keamanan Ahli. Identifikasi 2 temuan GAP PALING KRITIS untuk pilar: {nama}.
                     KONTEKS: {context_text}
                     
-                    INSTRUKSI NARASI:
-                    1. 'Situasi': Jelaskan kekurangan SOP (sekitar 15 kata).
-                    2. 'Saran': Langkah perbaikan NIST (sekitar 15 kata).
+                    INSTRUKSI:
+                    1. 'Situasi': Jelaskan 2 kekurangan SOP yang paling mendesak (masing-masing sekitar 15 kata).
+                    2. 'Saran': Langkah perbaikan sesuai NIST (masing-masing sekitar 15 kata).
 
-                    FORMAT OUTPUT (WAJIB):
-                    {nama} | {prefix}.XX-01 | [Situasi] | [Saran]
+                    FORMAT OUTPUT (WAJIB 2 BARIS):
+                    {nama} | {prefix}.XX.01 | [Situasi 1] | [Saran 1]
+                    {nama} | {prefix}.XX.02 | [Situasi 2] | [Saran 2]
                     
                     Hanya berikan baris yang mengandung karakter '|'. Dilarang memberikan teks basa-basi.
                     """
                     
                     try:
                         resp = llm.invoke(prompt).content
-                        # Logika Parsing Filter (Hanya ambil baris yang punya '|')
                         for line in resp.strip().split('\n'):
                             if "|" in line and len(line.split("|")) >= 4:
                                 parts = [p.strip() for p in line.split("|")]
@@ -109,43 +110,57 @@ if nist_file and sop_file:
                     except Exception:
                         pass
                     
-                    # JEDA 4 DETIK (Sangat Penting untuk Akun Gratis)
-                    time.sleep(4) 
+                    # TPM ADJUSTMENT: 6 detik untuk stabilitas
+                    time.sleep(6) 
                     progress_bar.progress((idx + 1) / len(pilar_nist))
 
                 if all_results:
                     df = pd.DataFrame(all_results, columns=["Fungsi", "ID", "Current Situation", "Action Plan"])
-                    df = df.drop_duplicates(subset=['ID'])
+                    df = df.head(12) # Memastikan hanya 12 gap prioritas
 
-                    st.success(f"✅ Audit Selesai: {len(df)} Temuan Teridentifikasi.")
+                    st.success(f"✅ Audit Selesai: {len(df)} Gap Prioritas Utama Teridentifikasi.")
                     st.table(df)
 
-                    # Visualisasi
+                    # --- VISUALISASI SPIDER DIAGRAM ---
+                    st.subheader("📊 NIST CSF 2.0 Compliance Radar")
                     counts = df['Fungsi'].value_counts().reindex([p[0] for p in pilar_nist], fill_value=0)
-                    fig, ax = plt.subplots(figsize=(10, 4))
-                    counts.plot(kind='bar', ax=ax, color='#1f77b4')
-                    plt.xticks(rotation=0)
+                    
+                    labels = np.array([p[0] for p in pilar_nist])
+                    stats = counts.values
+
+                    angles = np.linspace(0, 2*np.pi, len(labels), endpoint=False).tolist()
+                    
+                    # Menutup loop radar
+                    stats = np.concatenate((stats, [stats[0]]))
+                    angles = np.concatenate((angles, [angles[0]]))
+
+                    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
+                    ax.fill(angles, stats, color='#1f77b4', alpha=0.25)
+                    ax.plot(angles, stats, color='#1f77b4', linewidth=2)
+                    
+                    ax.set_yticklabels([])
+                    ax.set_xticks(angles[:-1])
+                    ax.set_xticklabels(labels)
+                    
                     st.pyplot(fig)
                     
                     buf = io.BytesIO()
                     plt.savefig(buf, format='png')
 
-                    summary_txt = f"Total {len(df)} gap ditemukan. Fokus utama pada pilar {counts.idxmax()}."
+                    summary_txt = f"Total 12 gap prioritas ditemukan. Fokus utama perbaikan pada pilar {counts.idxmax()}."
                     st.info(summary_txt)
                     
                     st.sidebar.divider()
-                    st.sidebar.download_button("📊 Excel", df.to_csv(index=False).encode('utf-8'), "Audit_Report.csv")
-                    st.sidebar.download_button("📄 PDF", create_pdf(df, summary_txt, buf), "Audit_Report.pdf")
+                    st.sidebar.download_button("📊 Excel", df.to_csv(index=False).encode('utf-8'), "Audit_Priority_Report.csv")
+                    st.sidebar.download_button("📄 PDF", create_pdf(df, summary_txt, buf), "Audit_Priority_Report.pdf")
                 else:
-                     st.error("Gagal mendapatkan data. Server Groq sedang sibuk, silakan tunggu 1 menit dan coba lagi.")
+                    st.error("Gagal mendapatkan data. Server Groq sedang sibuk, silakan tunggu 1 menit dan coba lagi.")
 
             except Exception as e:
                 st.error(f"Sistem: {e}")
 
 else:
-    # Tampilan awal jika file belum di-upload
     st.info("👋 Selamat Datang! Silakan unggah kedua file PDF di sidebar kiri untuk mengaktifkan tombol audit.")
-    st.warning("⚠️ Tombol audit akan muncul secara otomatis setelah file diunggah.")
 
 st.divider()
-st.caption("AI Cyber-Auditor NIST CSF 2.0 - 2025")
+st.caption("Prototipe Sistem Audit Otomatis NIST CSF 2.0 - 2025")
