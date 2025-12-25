@@ -152,6 +152,24 @@ if nist_file and sop_file:
         max_y = int(stats.max()) if stats.max() > 0 else 1
         ax.set_yticks(range(0, max_y + 1))
         st.pyplot(fig)
+
+        # --- TAMBAHAN: REKOMENDASI PILAR PRIORITAS ---
+        st.divider()
+        # Menghitung pilar mana yang paling banyak muncul di tabel 12 gap
+        top_pilar = counts.idxmax()
+        top_val = int(counts.max())
+        
+        st.subheader("💡 Kesimpulan & Rekomendasi Strategis")
+        
+        if top_val > 0:
+            st.warning(f"""
+            **Pilar Prioritas Utama:** {top_pilar}  
+            Berdasarkan analisis terhadap 12 gap paling kritis, pilar **{top_pilar}** ditemukan memiliki frekuensi kelemahan tertinggi ({top_val} temuan). 
+            
+            **Rekomendasi:** Perguruan Tinggi disarankan untuk memfokuskan mitigasi pada pilar ini terlebih dahulu karena merupakan titik terlemah yang paling berisiko mengganggu keberlangsungan layanan TI kampus.
+            """)
+        else:
+            st.info("Tidak ditemukan konsentrasi gap yang menonjol pada pilar tertentu.")
         
         buf = io.BytesIO()
         plt.savefig(buf, format='png', bbox_inches='tight')
