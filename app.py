@@ -13,6 +13,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_groq import ChatGroq
+from audit_utils import parse_nist_findings
 
 # --- 1. SETUP API & PAGE ---
 # Streamlit page configuration must run before other Streamlit commands.
@@ -87,16 +88,14 @@ if nist_file and sop_file:
                     
                     # temperature=0 untuk memastikan output konsisten
                     llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0)
-                    pilar_nist = ["GOVERN", "IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"]
-                    
                     relevant_docs = vstore.as_retriever(search_kwargs={"k": 15}).invoke("Cari 12 kelemahan keamanan siber paling fatal")
                     context_text = "\n\n".join([d.page_content for d in relevant_docs])
-                    
+
                     # --- FIX 3: Prompt diperketat untuk Prioritas Global & Batas Kata ---
                     prompt = f"""
                     Anda adalah Auditor Senior NIST CSF 2.0.
                     TUGAS: Temukan tepat 12 GAP TERBURUK secara keseluruhan (Ranking 1-12) dari seluruh pilar NIST.
-                    
+
                     REFERENSI ID (WAJIB):
                     - GOVERN: GV.OC, GV.RM, GV.RR, GV.PO, GV.OV, GV.SC
                     - IDENTIFY: ID.AM, ID.RA, ID.IM
@@ -116,27 +115,16 @@ if nist_file and sop_file:
                     FORMAT OUTPUT (WAJIB 12 BARIS):
                     PILAR | ID_KONTROL | Situasi | Saran
                     """
-                    
+
                     resp = llm.invoke(prompt).content
-                    all_results = []
-                    valid_refs = ["GV.OC", "GV.RM", "GV.RR", "GV.PO", "GV.OV", "GV.SC", "ID.AM", "ID.RA", "ID.IM", "PR.AA", "PR.AT", "PR.DS", "PR.PS", "PR.IR", "DE.AE", "DE.CM", "RS.CO", "RS.AN", "RS.MI", "RS.MA", "RC.RP", "RC.CO"]
+                    all_results = parse_nist_findings(resp)
 
-                    for line in resp.strip().split('\n'):
-                        if "|" in line:
-                            parts = [p.strip() for p in line.split("|")]
-                            if len(parts) >= 4:
-                                pilar_fix = parts[0].upper()
-                                matched = next((p for p in pilar_nist if p in pilar_fix), None)
-                                # Cek ulang pilar secara manual jika matched none
-                                if not matched:
-                                    for p in pilar_nist:
-                                        if p in pilar_fix: matched = p; break
+                    if len(all_results) < 12:
+                        st.warning(
+                            f"Model menghasilkan {len(all_results)} temuan valid dari 12 yang diminta. "
+                            "Periksa kembali hasil dan dokumen sumber sebelum digunakan."
+                        )
 
-                                id_audit = parts[1].upper()
-                                # Validasi ID
-                                if matched and any(id_audit.startswith(ref) for ref in valid_refs):
-                                    all_results.append([matched, id_audit, parts[2], parts[3]])
-                    
                     if all_results:
                         st.session_state.audit_cache[file_id] = all_results[:12]
                 except Exception as e:
@@ -189,7 +177,7 @@ if nist_file and sop_file:
         fig.savefig(buf, format='png', bbox_inches='tight')
         
         st.sidebar.divider()
-        st.sidebar.download_button("📊 Excel", df.to_csv(index=False).encode('utf-8'), "Prioritas_12_Gap.csv")
+        st.sidebar.download_button("📊 CSV", df.to_csv(index=False).encode('utf-8'), "Prioritas_12_Gap.csv")
         st.sidebar.download_button("📄 PDF", create_pdf(df, f"Analisis 12 Prioritas Utama - Fokus pada {top_pilar}", buf), "Audit_Report.pdf")
 else:
     st.info("👋 Silakan unggah file PDF.")
