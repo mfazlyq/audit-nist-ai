@@ -1,17 +1,16 @@
 # NIST AI Audit Assistant
 
-A Streamlit-based prototype that helps review campus cybersecurity policies and procedures against the NIST Cybersecurity Framework (CSF) by retrieving relevant PDF passages and using a large language model to draft prioritized findings.
+![Python tests](https://github.com/mfazlyq/audit-nist-ai/actions/workflows/tests.yml/badge.svg)
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
+![Status](https://img.shields.io/badge/Status-Research%20Prototype-orange)
 
-> **Project status:** Research/prototype. This tool is decision support, not a certified audit system. Every finding and recommendation must be checked by a qualified human auditor.
+A Streamlit-based research prototype that explores AI-assisted review of campus cybersecurity policies and procedures against the NIST Cybersecurity Framework (CSF).
+
+> **Project status:** Research prototype and decision-support tool. It is not a certified audit system. Every finding and recommendation must be verified by a qualified human auditor.
 
 ## Overview
 
-The application accepts two PDF documents:
-
-1. A NIST reference document.
-2. A campus SOP or policy document.
-
-It extracts text from both documents, creates semantic chunks and embeddings, retrieves relevant passages, and asks an LLM to draft up to 12 prioritized gap findings. Results are presented in a table and a radar-style chart, with CSV and PDF export options.
+The application accepts a NIST reference PDF and a campus SOP or policy PDF. It extracts text, creates semantic chunks and embeddings, retrieves relevant passages, and asks a language model to draft prioritized gap findings. Results are presented in a table and a radar-style chart, with CSV and PDF export options.
 
 ## Features
 
@@ -20,10 +19,10 @@ It extracts text from both documents, creates semantic chunks and embeddings, re
 - Generate embeddings with **sentence-transformers/all-MiniLM-L6-v2**.
 - Store and retrieve document chunks with **Chroma**.
 - Use Groq-hosted LLM inference to draft prioritized findings.
-- Group findings across the six NIST CSF functions: Govern, Identify, Protect, Detect, Respond, and Recover.
-- Visualize the distribution of findings.
+- Validate returned NIST CSF function names and control-ID formats before displaying findings.
+- Visualize the distribution of findings across the six NIST CSF functions.
 - Download findings as CSV and an audit summary as PDF.
-- Cache completed analysis in the Streamlit session to avoid repeating work for the same input files.
+- Cache completed analysis in the Streamlit session for the same input files.
 
 ## Workflow
 
@@ -65,6 +64,7 @@ NIST PDF + Campus SOP PDF
 | Data processing | pandas, NumPy |
 | Visualization | Matplotlib |
 | PDF report | FPDF |
+| Unit tests / CI | Python unittest, GitHub Actions |
 
 ## Getting started
 
@@ -102,7 +102,7 @@ pip install -r requirements.txt
 
 The application reads **GROQ_API_KEY** from the environment or Streamlit secrets.
 
-**Option A — Streamlit secrets (recommended for local use)**
+**Option A — Streamlit secrets**
 
 Create **.streamlit/secrets.toml**:
 
@@ -124,7 +124,7 @@ macOS / Linux:
 export GROQ_API_KEY="your_groq_api_key"
 ~~~
 
-Never commit API keys, **.env** files, or **.streamlit/secrets.toml** to Git.
+The [.env.example](.env.example) file is a reference template only; the application does not automatically load a .env file. Never commit real API keys, .env files, or .streamlit/secrets.toml.
 
 ### 5. Run the application
 
@@ -139,28 +139,56 @@ Streamlit will print a local URL in the terminal. Open that URL in your browser.
 1. Start the application.
 2. Upload the NIST reference PDF in the sidebar.
 3. Upload the campus SOP or policy PDF.
-4. Select **Analyze 12 Priority Gaps**.
+4. Select **Analisa 12 Gap Prioritas Utama**.
 5. Review the findings, function distribution, and recommendations.
 6. Export the results as CSV or PDF.
 
-The exact labels in the interface may be in Indonesian.
+The user interface currently uses Indonesian labels.
+
+## Run tests
+
+The parser unit tests use Python's standard library and do not require the full application dependencies:
+
+~~~bash
+python -m unittest discover -s tests -v
+~~~
+
+A GitHub Actions workflow runs these tests on pushes to main and pull requests targeting main.
 
 ## Repository structure
 
 ~~~text
 audit-nist-ai/
+├── .github/
+│   └── workflows/
+│       └── tests.yml
+├── docs/
+│   ├── ARCHITECTURE.md
+│   ├── GITHUB_PROFILE_README.md
+│   └── SECURITY.md
+├── tests/
+│   └── test_audit_utils.py
+├── .env.example
+├── .gitignore
 ├── app.py
-├── requirements.txt
+├── audit_utils.py
 ├── README.md
-└── .gitignore
+└── requirements.txt
 ~~~
+
+## Documentation
+
+- [Architecture and implementation notes](docs/ARCHITECTURE.md)
+- [Security and data-handling notes](docs/SECURITY.md)
+- [Prepared GitHub profile README](docs/GITHUB_PROFILE_README.md)
 
 ## Important limitations and responsible use
 
 - **Validate every finding.** LLM-generated findings may be incomplete, incorrectly ranked, or mapped to an incorrect control identifier.
-- **Review source evidence.** Treat the generated output as an initial assessment, not proof of compliance or non-compliance.
-- **Protect sensitive documents.** Retrieved document passages are included in prompts sent to the configured Groq service. Do not upload confidential, personal, or restricted institutional documents unless you have the required authorization and have reviewed the provider's data-handling terms.
-- **Check framework references.** Confirm control identifiers and interpretations against the official NIST publication used by your institution.
+- **Review source evidence.** The parser checks the function name and control-ID format, but it cannot prove that a finding is supported by the uploaded evidence.
+- **Retrieval is not exhaustive.** A broad retrieval query does not guarantee complete coverage of every NIST CSF outcome.
+- **Ranking is provisional.** The current ordering is generated by the language model and is not a formally calibrated risk score.
+- **Protect sensitive documents.** Retrieved document passages are included in prompts sent to the configured Groq service. Do not upload confidential, personal, or restricted institutional documents unless you have the required authorization and have reviewed the provider's current data-handling terms.
 - **No compliance certification.** The tool does not replace a formal risk assessment, audit process, or professional judgment.
 
 ## Author
