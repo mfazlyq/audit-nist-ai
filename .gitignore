@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets and local environment configuration
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Local databases, vector stores, and generated data
+chroma/
+chroma_db/
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated reports and temporary files
+*.pdf
+*.csv
+*.png
+
+# Operating system / editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
