@@ -15,6 +15,9 @@ from langchain_community.vectorstores import Chroma
 from langchain_groq import ChatGroq
 
 # --- 1. SETUP API & PAGE ---
+# Streamlit page configuration must run before other Streamlit commands.
+st.set_page_config(page_title="Expert NIST Auditor Pro", layout="wide")
+
 if "GROQ_API_KEY" in st.secrets:
     os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
 elif "GROQ_API_KEY" in os.environ:
@@ -23,7 +26,6 @@ else:
     st.error("❌ API Key tidak ditemukan.")
     st.stop()
 
-st.set_page_config(page_title="Expert NIST Auditor Pro", layout="wide")
 st.title("🛡️ Prototipe Sistem Audit Keamanan Siber Otomatis berbasis Web")
 
 def get_file_hash(file_bytes):
@@ -49,7 +51,11 @@ def create_pdf(df, summary_text, plot_buf):
         pdf.multi_cell(190, 6, f"Situasi: {df.iloc[i,2]}", border='LR')
         pdf.multi_cell(190, 6, f"Saran: {df.iloc[i,3]}", border='BLR')
         pdf.ln(2)
-    return pdf.output(dest='S').encode('latin-1')
+    pdf_output = pdf.output(dest='S')
+    # fpdf 1.x returns str; fpdf2 returns bytearray.
+    if isinstance(pdf_output, str):
+        return pdf_output.encode('latin-1')
+    return bytes(pdf_output)
 
 nist_file = st.sidebar.file_uploader("Upload Standar NIST (PDF)", type="pdf")
 sop_file = st.sidebar.file_uploader("Upload SOP Kampus (PDF)", type="pdf")
@@ -120,7 +126,7 @@ if nist_file and sop_file:
                             parts = [p.strip() for p in line.split("|")]
                             if len(parts) >= 4:
                                 pilar_fix = parts[0].upper()
-                                matched = next((p for p in pilar_nist if p in pilar_upper if p in pilar_fix), None) # perbaikan logika pilar
+                                matched = next((p for p in pilar_nist if p in pilar_fix), None)
                                 # Cek ulang pilar secara manual jika matched none
                                 if not matched:
                                     for p in pilar_nist:
@@ -180,7 +186,7 @@ if nist_file and sop_file:
             st.info("Tidak ditemukan konsentrasi gap yang menonjol pada pilar tertentu.")
         
         buf = io.BytesIO()
-        plt.savefig(buf, format='png', bbox_inches='tight')
+        fig.savefig(buf, format='png', bbox_inches='tight')
         
         st.sidebar.divider()
         st.sidebar.download_button("📊 Excel", df.to_csv(index=False).encode('utf-8'), "Prioritas_12_Gap.csv")
